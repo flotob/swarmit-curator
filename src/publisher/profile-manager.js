@@ -5,7 +5,8 @@
 
 import { Wallet, JsonRpcProvider, Interface } from 'ethers';
 import config from '../config.js';
-import { publishJSON, toBzzUrl } from '../swarm/client.js';
+import { publishJSON } from '../swarm/client.js';
+import { hexToBzz } from '../protocol/references.js';
 import { buildCuratorProfile, validate } from '../protocol/objects.js';
 import { getBoards, getFeed, getPublishedBoardSlugs, setPublishedBoardSlugs } from '../indexer/state.js';
 import { getFeedBzzUrl } from './feed-manager.js';
@@ -56,7 +57,7 @@ export async function publishAndDeclare() {
   }
 
   const contentRef = await publishJSON(profile);
-  const bzzUrl = toBzzUrl(contentRef);
+  const bzzUrl = hexToBzz(contentRef);
   console.log(`[Profile] Published curatorProfile: ${bzzUrl}`);
 
   // Emit CuratorDeclared on-chain

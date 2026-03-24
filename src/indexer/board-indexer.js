@@ -3,6 +3,7 @@
  */
 
 import { buildBoardIndex } from '../protocol/objects.js';
+import { hexToBzz } from '../protocol/references.js';
 import { getRootSubmissions, getFeed } from './state.js';
 import config from '../config.js';
 
@@ -30,7 +31,7 @@ export function buildBoardIndexForBoard(boardSlug) {
     const threadFeedName = `thread-${post.submissionRef}`;
     const threadFeed = getFeed(threadFeedName);
     if (threadFeed) {
-      entry.threadIndexFeed = `bzz://${threadFeed}`;
+      entry.threadIndexFeed = hexToBzz(threadFeed);
     }
 
     return entry;

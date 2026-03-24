@@ -5,7 +5,8 @@
 
 import config from './config.js';
 import { getSafeBlockNumber, fetchEvents } from './chain/reader.js';
-import { fetchObject, toBzzUrl } from './swarm/client.js';
+import { fetchObject, clearCache } from './swarm/client.js';
+import { hexToBzz } from './protocol/references.js';
 import { validateIngestedSubmission, validateIngestedContent, validateReplyConsistency } from './indexer/validator.js';
 import {
   loadState, saveState,
@@ -20,11 +21,14 @@ import { buildGlobalIndexFromState } from './indexer/global-indexer.js';
 import { publishAndUpdateFeed } from './publisher/feed-manager.js';
 import { needsProfileUpdate, publishAndDeclare } from './publisher/profile-manager.js';
 
+const MAX_BLOCKS_PER_POLL = 10_000;
+
 let running = true;
 
 async function processEvents(fromBlock, toBlock) {
   const events = await fetchEvents(fromBlock, toBlock);
   const changedBoards = new Set();
+  const changedThreads = new Set(); // track which root submissions need threadIndex updates
 
   // 1. Process board registrations
   for (const board of events.boards) {
@@ -54,7 +58,12 @@ async function processEvents(fromBlock, toBlock) {
 
   for (const sub of events.submissions) {
     const submissionRef = sub.submissionRef;
-    const bzzRef = toBzzUrl(submissionRef);
+    const bzzRef = hexToBzz(submissionRef);
+
+    if (!bzzRef) {
+      console.warn(`[Ingest] Invalid submissionRef: ${submissionRef}`);
+      continue;
+    }
 
     // Skip if already known
     if (getSubmissions().has(bzzRef)) continue;
@@ -90,18 +99,20 @@ async function processEvents(fromBlock, toBlock) {
       }
 
       // All validation passed — add to state
+      const rootRef = submission.rootSubmissionId || bzzRef;
       addSubmission(bzzRef, {
         boardId: submission.boardId,
         kind: submission.kind,
         contentRef: submission.contentRef,
         parentSubmissionId: submission.parentSubmissionId || null,
-        rootSubmissionId: submission.rootSubmissionId || bzzRef,
+        rootSubmissionId: rootRef,
         author: sub.author,
         blockNumber: sub.blockNumber,
         logIndex: sub.logIndex,
       });
 
       changedBoards.add(submission.boardId);
+      changedThreads.add(rootRef);
       console.log(`[Ingest] ${submission.kind}: ${bzzRef} in r/${submission.boardId}`);
 
     } catch (err) {
@@ -109,23 +120,24 @@ async function processEvents(fromBlock, toBlock) {
     }
   }
 
-  return changedBoards;
+  return { changedBoards, changedThreads };
 }
 
-async function publishIndexes(changedBoards) {
-  // Publish boardIndex + threadIndexes for each changed board
+async function publishIndexes(changedBoards, changedThreads) {
   for (const boardSlug of changedBoards) {
     try {
       // Build and publish boardIndex
       const boardIndex = buildBoardIndexForBoard(boardSlug);
       await publishAndUpdateFeed(`board-${boardSlug}`, boardIndex, `boardIndex for r/${boardSlug}`);
 
-      // Build and publish threadIndex for each root post
+      // Only rebuild threadIndexes for threads that actually changed
       const roots = getRootSubmissions(boardSlug);
       for (const root of roots) {
-        const threadIndex = buildThreadIndexForRoot(root);
-        const threadFeedName = `thread-${root.submissionRef}`;
-        await publishAndUpdateFeed(threadFeedName, threadIndex, `threadIndex for ${root.submissionRef.slice(0, 20)}...`);
+        if (changedThreads.has(root.submissionRef)) {
+          const threadIndex = buildThreadIndexForRoot(root);
+          const threadFeedName = `thread-${root.submissionRef}`;
+          await publishAndUpdateFeed(threadFeedName, threadIndex, `threadIndex for ${root.submissionRef.slice(0, 20)}...`);
+        }
       }
     } catch (err) {
       console.error(`[Publish] Failed for r/${boardSlug}: ${err.message}`);
@@ -169,25 +181,30 @@ async function runLoop() {
       const fromBlock = getLastProcessedBlock() + 1;
 
       if (fromBlock > safeBlock) {
-        // Nothing new yet
         await sleep(config.pollInterval);
         continue;
       }
 
-      console.log(`[Curator] Processing blocks ${fromBlock} → ${safeBlock}`);
+      // Chunk large ranges to avoid RPC limits
+      const toBlock = Math.min(fromBlock + MAX_BLOCKS_PER_POLL - 1, safeBlock);
 
-      const changedBoards = await processEvents(fromBlock, safeBlock);
+      console.log(`[Curator] Processing blocks ${fromBlock} → ${toBlock}${toBlock < safeBlock ? ` (${safeBlock - toBlock} remaining)` : ''}`);
+
+      const { changedBoards, changedThreads } = await processEvents(fromBlock, toBlock);
 
       if (changedBoards.size > 0) {
-        await publishIndexes(changedBoards);
+        await publishIndexes(changedBoards, changedThreads);
       }
 
-      setLastProcessedBlock(safeBlock);
+      setLastProcessedBlock(toBlock);
       await saveState();
+      clearCache();
+
+      // If more blocks remain, continue immediately without sleeping
+      if (toBlock < safeBlock) continue;
 
     } catch (err) {
       console.error(`[Curator] Loop error: ${err.message}`);
-      // Don't crash — wait and retry
       await sleep(config.pollInterval);
     }
   }
@@ -200,7 +217,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Graceful shutdown
 process.on('SIGINT', () => { running = false; });
 process.on('SIGTERM', () => { running = false; });
 

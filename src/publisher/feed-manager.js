@@ -2,7 +2,8 @@
  * Feed manager — creates and updates Swarm feeds for board/thread/global indexes.
  */
 
-import { createFeedManifest, updateFeed as updateSwarmFeed, publishJSON, toBzzUrl } from '../swarm/client.js';
+import { createFeedManifest, updateFeed as updateSwarmFeed, publishJSON } from '../swarm/client.js';
+import { hexToBzz } from '../protocol/references.js';
 import { getFeed, setFeed } from '../indexer/state.js';
 import { validate } from '../protocol/objects.js';
 
@@ -51,5 +52,5 @@ export async function publishAndUpdateFeed(feedName, indexObj, label) {
  */
 export function getFeedBzzUrl(feedName) {
   const ref = getFeed(feedName);
-  return ref ? toBzzUrl(ref) : null;
+  return ref ? hexToBzz(ref) : null;
 }
