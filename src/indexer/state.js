@@ -36,6 +36,12 @@ const state = {
 
   // Track which boards are in the current published curatorProfile
   publishedBoardSlugs: new Set(),
+
+  // Retry queues — persisted so restarts don't lose pending work
+  retrySubmissions: [],       // { submissionRef, author, blockNumber, logIndex }
+  republishBoards: new Set(), // board slugs needing feed republish
+  republishGlobal: false,
+  republishProfile: false,
 };
 
 /**
@@ -53,6 +59,10 @@ export async function loadState() {
     state.submissions = new Map(Object.entries(data.submissions || {}));
     state.feeds = new Map(Object.entries(data.feeds || {}));
     state.publishedBoardSlugs = new Set(data.publishedBoardSlugs || []);
+    state.retrySubmissions = data.retrySubmissions || [];
+    state.republishBoards = new Set(data.republishBoards || []);
+    state.republishGlobal = data.republishGlobal || false;
+    state.republishProfile = data.republishProfile || false;
 
     return true;
   } catch (err) {
@@ -71,6 +81,10 @@ export async function saveState() {
     submissions: Object.fromEntries(state.submissions),
     feeds: Object.fromEntries(state.feeds),
     publishedBoardSlugs: [...state.publishedBoardSlugs],
+    retrySubmissions: state.retrySubmissions,
+    republishBoards: [...state.republishBoards],
+    republishGlobal: state.republishGlobal,
+    republishProfile: state.republishProfile,
   };
 
   const tmp = config.stateFile + '.tmp';
@@ -145,3 +159,17 @@ export function getPublishedBoardSlugs() {
 export function setPublishedBoardSlugs(slugs) {
   state.publishedBoardSlugs = new Set(slugs);
 }
+
+// Retry state accessors
+
+export function getRetrySubmissions() { return state.retrySubmissions; }
+export function setRetrySubmissions(subs) { state.retrySubmissions = subs; }
+
+export function getRepublishBoards() { return state.republishBoards; }
+export function setRepublishBoards(set) { state.republishBoards = set; }
+
+export function getRepublishGlobal() { return state.republishGlobal; }
+export function setRepublishGlobal(val) { state.republishGlobal = val; }
+
+export function getRepublishProfile() { return state.republishProfile; }
+export function setRepublishProfile(val) { state.republishProfile = val; }

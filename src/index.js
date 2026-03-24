@@ -14,6 +14,10 @@ import {
   getBoards, addBoard, getKnownBoardSlugs,
   getSubmissions, addSubmission,
   getRootSubmissions,
+  getRetrySubmissions, setRetrySubmissions,
+  getRepublishBoards, setRepublishBoards,
+  getRepublishGlobal, setRepublishGlobal,
+  getRepublishProfile, setRepublishProfile,
 } from './indexer/state.js';
 import { buildBoardIndexForBoard } from './indexer/board-indexer.js';
 import { buildThreadIndexForRoot } from './indexer/thread-indexer.js';
@@ -25,11 +29,13 @@ const MAX_BLOCKS_PER_POLL = 10_000;
 
 let running = true;
 
-// Retry queues — submissions that failed transiently, boards that need republishing
-const pendingRetrySubmissions = []; // { submissionRef, author, blockNumber, logIndex }
-const pendingRepublishBoards = new Set();
-let pendingRepublishGlobal = false;
-let pendingRepublishProfile = false;
+function hasPendingWork() {
+  return getRetrySubmissions().length > 0
+    || getRepublishBoards().size > 0
+    || getRepublishGlobal()
+    || getRepublishProfile()
+    || needsProfileUpdate();
+}
 
 async function processEvents(fromBlock, toBlock) {
   const events = await fetchEvents(fromBlock, toBlock);
@@ -60,10 +66,9 @@ async function processEvents(fromBlock, toBlock) {
   }
 
   // 3. Process submissions (new events + retry queue)
-  const toProcess = [
-    ...events.submissions,
-    ...pendingRetrySubmissions.splice(0), // drain retry queue
-  ];
+  const retryQueue = getRetrySubmissions().splice(0);
+  const toProcess = [...events.submissions, ...retryQueue];
+  const stillPending = [];
 
   const knownBoardSlugs = getKnownBoardSlugs();
 
@@ -76,16 +81,16 @@ async function processEvents(fromBlock, toBlock) {
       continue;
     }
 
-    // Skip if already known
     if (getSubmissions().has(bzzRef)) continue;
 
     try {
       const submission = await fetchObject(submissionRef);
 
+      // Validate submission — malformed objects are permanently dropped
       const subResult = validateIngestedSubmission(submission, knownBoardSlugs);
       if (!subResult.valid) {
         console.warn(`[Ingest] Invalid submission ${bzzRef}: ${subResult.errors.join(', ')}`);
-        continue; // permanently skip — malformed, not transient
+        continue;
       }
 
       const content = await fetchObject(submission.contentRef);
@@ -93,14 +98,16 @@ async function processEvents(fromBlock, toBlock) {
       const contentResult = validateIngestedContent(content, submission.kind);
       if (!contentResult.valid) {
         console.warn(`[Ingest] Invalid content for ${bzzRef}: ${contentResult.errors.join(', ')}`);
-        continue; // permanently skip
+        continue;
       }
 
+      // For replies: check parent/root — if missing, retry later (parent may be pending)
       if (submission.kind === 'reply') {
         const replyResult = validateReplyConsistency(submission, getSubmissions());
         if (!replyResult.valid) {
-          console.warn(`[Ingest] Orphaned reply ${bzzRef}: ${replyResult.errors.join(', ')}`);
-          continue; // permanently skip — parent missing
+          console.warn(`[Ingest] Reply ${bzzRef} parent/root not yet available, will retry`);
+          stillPending.push(sub);
+          continue;
         }
       }
 
@@ -121,18 +128,20 @@ async function processEvents(fromBlock, toBlock) {
       console.log(`[Ingest] ${submission.kind}: ${bzzRef} in r/${submission.boardId}`);
 
     } catch (err) {
-      // Transient error (Bee timeout, 404 propagation delay, network) — queue for retry
+      // Transient fetch error — retry next loop
       console.warn(`[Ingest] Transient failure for ${bzzRef}, will retry: ${err.message}`);
-      pendingRetrySubmissions.push(sub);
+      stillPending.push(sub);
     }
   }
 
+  setRetrySubmissions(stillPending);
   return { changedBoards, changedThreads };
 }
 
 async function publishIndexes(changedBoards, changedThreads) {
-  // Also include boards that failed to publish last time
-  for (const slug of pendingRepublishBoards) {
+  // Include boards pending republish
+  const republishBoards = getRepublishBoards();
+  for (const slug of republishBoards) {
     changedBoards.add(slug);
   }
 
@@ -143,14 +152,13 @@ async function publishIndexes(changedBoards, changedThreads) {
       // Publish thread feeds FIRST so threadIndexFeed is available for boardIndex
       const roots = getRootSubmissions(boardSlug);
       for (const root of roots) {
-        if (changedThreads.has(root.submissionRef) || pendingRepublishBoards.has(boardSlug)) {
+        if (changedThreads.has(root.submissionRef) || republishBoards.has(boardSlug)) {
           const threadIndex = buildThreadIndexForRoot(root);
           const threadFeedName = `thread-${root.submissionRef}`;
           await publishAndUpdateFeed(threadFeedName, threadIndex, `threadIndex for ${root.submissionRef.slice(0, 20)}...`);
         }
       }
 
-      // Now build boardIndex — threadIndexFeed refs are available in state
       const boardIndex = buildBoardIndexForBoard(boardSlug);
       await publishAndUpdateFeed(`board-${boardSlug}`, boardIndex, `boardIndex for r/${boardSlug}`);
     } catch (err) {
@@ -159,32 +167,30 @@ async function publishIndexes(changedBoards, changedThreads) {
     }
   }
 
-  // Update retry set: clear successes, keep failures
-  pendingRepublishBoards.clear();
-  for (const slug of failedBoards) {
-    pendingRepublishBoards.add(slug);
-  }
+  setRepublishBoards(failedBoards);
+}
 
-  // Publish globalIndex
-  if (changedBoards.size > 0 || pendingRepublishGlobal) {
+async function publishGlobalAndProfile() {
+  // Global index
+  if (getRepublishGlobal()) {
     try {
       const globalIndex = buildGlobalIndexFromState();
       await publishAndUpdateFeed('global', globalIndex, 'globalIndex');
-      pendingRepublishGlobal = false;
+      setRepublishGlobal(false);
     } catch (err) {
       console.error(`[Publish] Failed for globalIndex: ${err.message}`);
-      pendingRepublishGlobal = true;
+      setRepublishGlobal(true);
     }
   }
 
-  // Update curator profile if new boards discovered or previous attempt failed
-  if (needsProfileUpdate() || pendingRepublishProfile) {
+  // Curator profile
+  if (needsProfileUpdate() || getRepublishProfile()) {
     try {
       await publishAndDeclare();
-      pendingRepublishProfile = false;
+      setRepublishProfile(false);
     } catch (err) {
       console.error(`[Profile] Failed to update: ${err.message}`);
-      pendingRepublishProfile = true;
+      setRepublishProfile(true);
     }
   }
 }
@@ -196,6 +202,9 @@ async function runLoop() {
   const loaded = await loadState();
   if (loaded) {
     console.log(`[Curator] Resumed from block ${getLastProcessedBlock()}`);
+    if (hasPendingWork()) {
+      console.log(`[Curator] Pending: ${getRetrySubmissions().length} submissions, ${getRepublishBoards().size} boards, global=${getRepublishGlobal()}, profile=${getRepublishProfile()}`);
+    }
   } else {
     console.log(`[Curator] Fresh start from deploy block ${config.contractDeployBlock}`);
   }
@@ -205,36 +214,45 @@ async function runLoop() {
       const safeBlock = await getSafeBlockNumber();
       const fromBlock = getLastProcessedBlock() + 1;
 
-      if (fromBlock > safeBlock && pendingRetrySubmissions.length === 0 && pendingRepublishBoards.size === 0 && !pendingRepublishGlobal && !pendingRepublishProfile) {
+      if (fromBlock > safeBlock && !hasPendingWork()) {
         await sleep(config.pollInterval);
         continue;
       }
+
+      let changedBoards = new Set();
+      let changedThreads = new Set();
 
       // Process new blocks if available
       if (fromBlock <= safeBlock) {
         const toBlock = Math.min(fromBlock + MAX_BLOCKS_PER_POLL - 1, safeBlock);
         console.log(`[Curator] Processing blocks ${fromBlock} → ${toBlock}${toBlock < safeBlock ? ` (${safeBlock - toBlock} remaining)` : ''}`);
 
-        const { changedBoards, changedThreads } = await processEvents(fromBlock, toBlock);
-
-        if (changedBoards.size > 0 || pendingRepublishBoards.size > 0) {
-          await publishIndexes(changedBoards, changedThreads);
-        }
+        const result = await processEvents(fromBlock, toBlock);
+        changedBoards = result.changedBoards;
+        changedThreads = result.changedThreads;
 
         setLastProcessedBlock(toBlock);
-        await saveState();
-        clearCache();
-
-        if (toBlock < safeBlock) continue;
-      } else {
-        // No new blocks, but retries pending
-        const { changedBoards, changedThreads } = await processEvents(fromBlock, fromBlock - 1); // empty range, processes retry queue only
-        if (changedBoards.size > 0 || pendingRepublishBoards.size > 0) {
-          await publishIndexes(changedBoards, changedThreads);
-          await saveState();
-        }
-        clearCache();
+      } else if (getRetrySubmissions().length > 0) {
+        // No new blocks but retries pending — process empty range to drain retry queue
+        const result = await processEvents(fromBlock, fromBlock - 1);
+        changedBoards = result.changedBoards;
+        changedThreads = result.changedThreads;
       }
+
+      // Publish board/thread indexes
+      if (changedBoards.size > 0 || getRepublishBoards().size > 0) {
+        await publishIndexes(changedBoards, changedThreads);
+        // Mark global for publish if boards changed
+        if (!getRepublishGlobal()) setRepublishGlobal(true);
+      }
+
+      // Global + profile — always checked independently of board changes
+      await publishGlobalAndProfile();
+
+      await saveState();
+      clearCache();
+
+      if (fromBlock <= safeBlock && getLastProcessedBlock() < safeBlock) continue;
 
     } catch (err) {
       console.error(`[Curator] Loop error: ${err.message}`);
