@@ -41,16 +41,18 @@ export async function publishAndDeclare() {
   }
 
   const globalFeedUrl = getFeedBzzUrl('global');
+  if (!globalFeedUrl) {
+    throw new Error('Cannot publish curatorProfile: global feed not yet created');
+  }
 
   const profile = buildCuratorProfile({
     curator: config.curatorAddress,
     name: config.curatorName,
     description: config.curatorDescription,
-    globalIndexFeed: globalFeedUrl || `bzz://${'0'.repeat(64)}`,
+    globalIndexFeed: globalFeedUrl,
     boardFeeds,
   });
 
-  // Validate before publish
   const result = validate(profile);
   if (!result.valid) {
     throw new Error(`curatorProfile validation failed: ${result.errors.join(', ')}`);
