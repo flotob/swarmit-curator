@@ -1,6 +1,6 @@
 # Swarmit Curator
 
-Reference curator/indexer for the [Swarmit](https://github.com/user/swarmit) decentralized message board protocol.
+Reference curator/indexer for the [Swarmit](https://github.com/flotob/swarmit) decentralized message board protocol.
 
 Watches Gnosis Chain for protocol events, fetches and validates content from Swarm, builds curated indexes, and publishes them as feed-backed views that the Swarmit SPA reads.
 
@@ -131,7 +131,3 @@ See [docs/testing-roadmap.md](docs/testing-roadmap.md) for the test plan.
 ```bash
 npm test
 ```
-
-## License
-
-MIT
