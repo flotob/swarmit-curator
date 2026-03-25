@@ -71,8 +71,8 @@ export async function publishAndDeclare() {
   const receipt = await tx.wait();
   console.log(`[Profile] CuratorDeclared tx: ${receipt.hash} (block ${receipt.blockNumber})`);
 
-  // Track which boards are in this profile
-  setPublishedBoardSlugs([...getBoards().keys()]);
+  // Track only boards that actually appear in this profile's boardFeeds
+  setPublishedBoardSlugs(Object.keys(boardFeeds));
 
   return bzzUrl;
 }
