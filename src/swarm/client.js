@@ -43,8 +43,9 @@ export function clearCache() {
  * @returns {Promise<string>} The reference hex (64 chars)
  */
 export async function publishJSON(obj) {
-  const data = new TextEncoder().encode(JSON.stringify(obj));
-  const result = await bee.uploadData(config.postageBatchId, data, {
+  const json = JSON.stringify(obj);
+  const result = await bee.uploadFile(config.postageBatchId, json, 'data.json', {
+    contentType: 'application/json',
     deferred: false,
   });
   return result.reference.toString();
