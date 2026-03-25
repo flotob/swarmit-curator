@@ -23,8 +23,9 @@ export async function fetchObject(ref) {
 
   if (cache.has(hex)) return cache.get(hex);
 
-  const data = await bee.downloadData(hex);
-  const obj = JSON.parse(new TextDecoder().decode(data));
+  const result = await bee.downloadFile(hex);
+  const text = new TextDecoder().decode(result.data.bytes);
+  const obj = JSON.parse(text);
   cache.set(hex, obj);
   return obj;
 }
@@ -82,6 +83,6 @@ export async function updateFeed(feedName, contentRef) {
 export async function resolveFeed(feedManifestRef) {
   const hex = refToHex(feedManifestRef);
   if (!hex) throw new Error(`Invalid feed manifest reference: ${feedManifestRef}`);
-  const data = await bee.downloadData(hex);
-  return JSON.parse(new TextDecoder().decode(data));
+  const result = await bee.downloadFile(hex);
+  return JSON.parse(new TextDecoder().decode(result.data.bytes));
 }
