@@ -6,10 +6,10 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node --test test/*/*.test.js"
+    "test": "node --experimental-test-module-mocks --test test/*/*.test.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "dependencies": {
     "@ethersphere/bee-js": "^11.1.1",
