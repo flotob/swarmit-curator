@@ -18,12 +18,17 @@ const wallet = new Wallet(config.curatorPrivateKey, provider);
 
 /**
  * Check if the curator profile needs to be re-published.
- * Returns true if new boards have been added since last publish.
+ * Returns true if there are boards with existing feeds that aren't in the published profile yet.
+ * Boards without feeds (no submissions yet) are skipped — no point publishing a profile
+ * for a board that has no data, and doing so would cause a runaway republish loop.
  */
 export function needsProfileUpdate() {
   const published = getPublishedBoardSlugs();
   for (const [slug] of getBoards()) {
-    if (!published.has(slug)) return true;
+    if (published.has(slug)) continue;
+    // Only trigger update if this board actually has a feed
+    const feedUrl = getFeedBzzUrl(`board-${slug}`);
+    if (feedUrl) return true;
   }
   return false;
 }
