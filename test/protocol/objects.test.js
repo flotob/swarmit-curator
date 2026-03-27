@@ -241,10 +241,16 @@ describe('validators catch missing/wrong fields', () => {
     assert.ok(errors.some(e => e.includes('at least one of')));
   });
 
-  it('rejects link post with invalid URL', () => {
+  it('rejects link post with unsupported scheme', () => {
     const post = buildPost({ author: validAuthor(), title: 'Bad', link: { url: 'ftp://bad' } });
     const errors = validatePost(post);
-    assert.ok(errors.some(e => e.includes('http')));
+    assert.ok(errors.some(e => e.includes('supported scheme')));
+  });
+
+  it('validates bzz:// link post', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Swarm', link: { url: `bzz://${'a'.repeat(64)}` } });
+    const errors = validatePost(post);
+    assert.deepEqual(errors, []);
   });
 
   it('rejects link post with missing URL', () => {

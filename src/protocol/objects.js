@@ -106,7 +106,7 @@ function validateOptionalBody(obj) {
   return errors.length ? errors : null;
 }
 
-const ABSOLUTE_URL_RE = /^https?:\/\/.+/;
+const ALLOWED_URL_SCHEMES = /^(https?|bzz|ipfs|ens|rad):\/\/.+/;
 
 function validateOptionalLink(obj) {
   if (!obj.link) return null;
@@ -116,8 +116,8 @@ function validateOptionalLink(obj) {
   const errors = [];
   if (!obj.link.url || typeof obj.link.url !== 'string') {
     errors.push('link.url is required when link is present');
-  } else if (!ABSOLUTE_URL_RE.test(obj.link.url)) {
-    errors.push('link.url must be an absolute http:// or https:// URL');
+  } else if (!ALLOWED_URL_SCHEMES.test(obj.link.url)) {
+    errors.push('link.url must use a supported scheme (http, https, bzz, ipfs, ens, rad)');
   }
   if (obj.link.thumbnailRef != null) {
     if (!isValidBzzRef(obj.link.thumbnailRef)) {
