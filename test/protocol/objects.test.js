@@ -208,13 +208,55 @@ describe('validators catch missing/wrong fields', () => {
     const errors = validatePost({ protocol: TYPES.POST });
     assert.ok(errors.some(e => e.includes('author')));
     assert.ok(errors.some(e => e.includes('title')));
-    assert.ok(errors.some(e => e.includes('body')));
+    assert.ok(errors.some(e => e.includes('at least one of')));
   });
 
   it('missing required fields on reply', () => {
     const errors = validateReply({ protocol: TYPES.REPLY });
     assert.ok(errors.some(e => e.includes('author')));
     assert.ok(errors.some(e => e.includes('body')));
+  });
+
+  it('validates link-only post', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Link', link: { url: 'https://example.com' } });
+    const errors = validatePost(post);
+    assert.deepEqual(errors, []);
+  });
+
+  it('validates link+body post', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Link', link: { url: 'https://example.com' }, body: validBody() });
+    const errors = validatePost(post);
+    assert.deepEqual(errors, []);
+  });
+
+  it('validates attachment-only post', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Media', attachments: [{ reference: VALID_BZZ, contentType: 'image/png' }] });
+    const errors = validatePost(post);
+    assert.deepEqual(errors, []);
+  });
+
+  it('rejects post with none of body/link/attachments', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Empty' });
+    const errors = validatePost(post);
+    assert.ok(errors.some(e => e.includes('at least one of')));
+  });
+
+  it('rejects link post with invalid URL', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Bad', link: { url: 'ftp://bad' } });
+    const errors = validatePost(post);
+    assert.ok(errors.some(e => e.includes('http')));
+  });
+
+  it('rejects link post with missing URL', () => {
+    const post = buildPost({ author: validAuthor(), title: 'No URL', link: { title: 'X' } });
+    const errors = validatePost(post);
+    assert.ok(errors.some(e => e.includes('link.url')));
+  });
+
+  it('rejects link post with invalid thumbnailRef', () => {
+    const post = buildPost({ author: validAuthor(), title: 'Bad thumb', link: { url: 'https://example.com', thumbnailRef: 'bad' } });
+    const errors = validatePost(post);
+    assert.ok(errors.some(e => e.includes('thumbnailRef')));
   });
 });
 

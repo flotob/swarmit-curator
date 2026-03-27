@@ -91,6 +91,42 @@ function requireBody(obj) {
   return errors.length ? errors : null;
 }
 
+function validateOptionalBody(obj) {
+  if (!obj.body) return null;
+  if (typeof obj.body !== 'object' || Array.isArray(obj.body)) {
+    return ['body must be an object'];
+  }
+  const errors = [];
+  if (!obj.body.kind || typeof obj.body.kind !== 'string') {
+    errors.push('body.kind is required when body is present');
+  }
+  if (!obj.body.text || typeof obj.body.text !== 'string') {
+    errors.push('body.text must be a non-empty string when body is present');
+  }
+  return errors.length ? errors : null;
+}
+
+const ABSOLUTE_URL_RE = /^https?:\/\/.+/;
+
+function validateOptionalLink(obj) {
+  if (!obj.link) return null;
+  if (typeof obj.link !== 'object' || Array.isArray(obj.link)) {
+    return ['link must be an object'];
+  }
+  const errors = [];
+  if (!obj.link.url || typeof obj.link.url !== 'string') {
+    errors.push('link.url is required when link is present');
+  } else if (!ABSOLUTE_URL_RE.test(obj.link.url)) {
+    errors.push('link.url must be an absolute http:// or https:// URL');
+  }
+  if (obj.link.thumbnailRef != null) {
+    if (!isValidBzzRef(obj.link.thumbnailRef)) {
+      errors.push('link.thumbnailRef must be a normalized bzz:// reference');
+    }
+  }
+  return errors.length ? errors : null;
+}
+
 function validateEntries(entries, requiredFields, label) {
   const errors = [];
   for (let i = 0; i < entries.length; i++) {
@@ -157,14 +193,15 @@ export function buildBoard({ boardId, slug, title, description, governance, rule
 /**
  * Build a post object.
  */
-export function buildPost({ author, title, body, attachments }) {
+export function buildPost({ author, title, body, link, attachments }) {
   const obj = {
     protocol: TYPES.POST,
     author,
     title,
-    body,
     createdAt: Date.now(),
   };
+  if (body) obj.body = body;
+  if (link) obj.link = link;
   if (attachments && attachments.length > 0) obj.attachments = attachments;
   return obj;
 }
@@ -296,13 +333,36 @@ export function validateBoard(obj) {
  * Validate a post object.
  */
 export function validatePost(obj) {
-  return collectErrors(
+  const result = collectErrors(
     requireProtocol(obj, TYPES.POST),
     requireAuthorRef(obj),
     requireString(obj, 'title'),
-    requireBody(obj),
     requireNumber(obj, 'createdAt'),
+    validateOptionalBody(obj),
+    validateOptionalLink(obj),
   );
+
+  // At least one of body, link, or attachments must be present
+  const hasBody = !!(obj.body && obj.body.text);
+  const hasLink = !!(obj.link && obj.link.url);
+  const hasAttachments = Array.isArray(obj.attachments) && obj.attachments.length > 0;
+  if (!hasBody && !hasLink && !hasAttachments) {
+    result.push('post must contain at least one of: body, link, or attachments');
+  }
+
+  if (obj.attachments != null) {
+    if (!Array.isArray(obj.attachments)) {
+      result.push('attachments must be an array');
+    } else if (obj.attachments.length > 0) {
+      const attErrors = validateEntries(obj.attachments, [
+        { name: 'reference', bzz: true },
+        { name: 'contentType', type: 'string' },
+      ], 'attachments');
+      if (attErrors) result.push(...attErrors);
+    }
+  }
+
+  return result;
 }
 
 /**

@@ -84,6 +84,30 @@ describe('validateIngestedContent', () => {
     assert.ok(result.errors.some(e => e.includes('body.text')));
   });
 
+  it('link-only post passes ingestion', () => {
+    const post = { ...validPost() };
+    delete post.body;
+    post.link = { url: 'https://example.com' };
+    const result = validateIngestedContent(post, 'post');
+    assert.equal(result.valid, true);
+  });
+
+  it('attachment-only post passes ingestion', () => {
+    const post = { ...validPost() };
+    delete post.body;
+    post.attachments = [{ reference: VALID_BZZ, contentType: 'image/png' }];
+    const result = validateIngestedContent(post, 'post');
+    assert.equal(result.valid, true);
+  });
+
+  it('post with none of body/link/attachments fails ingestion', () => {
+    const post = { ...validPost() };
+    delete post.body;
+    const result = validateIngestedContent(post, 'post');
+    assert.equal(result.valid, false);
+    assert.ok(result.errors.some(e => e.includes('at least one of')));
+  });
+
   it('wrong expectedKind fails', () => {
     const result = validateIngestedContent(validPost(), 'unknown');
     assert.equal(result.valid, false);
