@@ -85,6 +85,7 @@ describe('needsProfileUpdate', () => {
   it('new board added since last publish → true', () => {
     addBoard('general', { boardId: 'general' });
     addBoard('tech', { boardId: 'tech' });
+    setFeed('board-tech', 'c'.repeat(64));
     setPublishedBoardSlugs(['general']);
     assert.equal(needsProfileUpdate(), true);
   });
