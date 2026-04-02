@@ -225,6 +225,11 @@ export async function publishIndexes(changedBoards, changedThreads) {
   }
 
   setRepublishBoards(failedBoards);
+
+  // Ranked feeds were just rebuilt — reset the timed refresh clock
+  if (failedBoards.size === 0) {
+    setMeta('last_ranked_refresh_at', String(Date.now()));
+  }
 }
 
 /**
@@ -303,6 +308,11 @@ export async function publishGlobalAndProfile() {
     }
 
     setRepublishGlobal(globalFailed);
+
+    // Global ranked feeds were just rebuilt — reset the timed refresh clock
+    if (!globalFailed) {
+      setMeta('last_ranked_refresh_at', String(Date.now()));
+    }
   }
 
   // Curator profile

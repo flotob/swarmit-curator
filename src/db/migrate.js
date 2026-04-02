@@ -76,10 +76,11 @@ const SCHEMA = `
   );
 
   CREATE TABLE IF NOT EXISTS retry_submissions (
-    submission_ref TEXT PRIMARY KEY,
-    author         TEXT NOT NULL,
-    block_number   INTEGER NOT NULL,
-    log_index      INTEGER NOT NULL
+    submission_ref     TEXT PRIMARY KEY,
+    author             TEXT NOT NULL,
+    block_number       INTEGER NOT NULL,
+    log_index          INTEGER NOT NULL,
+    block_timestamp_ms INTEGER
   );
 `;
 
