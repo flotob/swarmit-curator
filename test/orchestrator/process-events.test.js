@@ -46,7 +46,7 @@ const { processEvents } = await import('../../src/indexer/orchestrator.js');
 const {
   initDb, closeDb, resetDb,
   addBoard, addSubmission, hasSubmission, getAllBoards,
-  getRetrySubmissions, setRetrySubmissions,
+  getRetrySubmissions, setRetrySubmissions, getSubmissionsForBoard,
 } = await import('../../src/indexer/state.js');
 
 import { before, after } from 'node:test';
@@ -61,6 +61,7 @@ function makeSubmissionEvent(ref, opts = {}) {
     author: opts.author || VALID_ADDRESS,
     blockNumber: opts.blockNumber || 100,
     logIndex: opts.logIndex || 0,
+    blockTimestampMs: opts.blockTimestampMs || null,
   };
 }
 
@@ -351,6 +352,34 @@ describe('processEvents', () => {
     assert.ok(hasSubmission(parentBzz));
     assert.ok(hasSubmission(`bzz://${replyRef}`));
     assert.equal(getRetrySubmissions().length, 0);
+  });
+
+  it('retried submission preserves blockTimestampMs through retry', async () => {
+    const ref = 'da'.repeat(32);
+    const bzzRef = `bzz://${ref}`;
+    const TIMESTAMP = 1700000500000;
+
+    // Put submission in retry queue WITH a timestamp
+    setRetrySubmissions([makeSubmissionEvent(ref, { blockNumber: 50, blockTimestampMs: TIMESTAMP })]);
+
+    const submission = makeValidSubmission('general', 'post');
+    const post = makeValidPost();
+
+    // Empty new events — only retry queue processed
+    mockFetchEvents.mock.mockImplementation(async () => emptyEvents);
+    let n = 0;
+    mockFetchObject.mock.mockImplementation(async () => {
+      n++;
+      return n === 1 ? submission : post;
+    });
+
+    await processEvents(100, 99);
+
+    assert.ok(hasSubmission(bzzRef));
+    // Verify the stored submission has the correct announcedAtMs
+    const subs = getSubmissionsForBoard('general');
+    const stored = subs.find((s) => s.submissionRef === bzzRef);
+    assert.equal(stored.announcedAtMs, TIMESTAMP);
   });
 
   it('processEvents applies VoteSet totals to state', async () => {

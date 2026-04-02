@@ -56,6 +56,7 @@ const {
   setRepublishBoards, getRepublishBoards,
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile,
+  getMeta,
 } = await import('../../src/indexer/state.js');
 
 import { before, after } from 'node:test';
@@ -236,6 +237,44 @@ describe('pollOnce', () => {
     assert.equal(getLastProcessedBlock(), 100);
     // Board is in republish queue for next iteration
     assert.ok(getRepublishBoards().has('general'));
+  });
+
+  it('normal event-driven publish updates last_ranked_refresh_at, preventing immediate timed refresh', async () => {
+    setLastProcessedBlock(99);
+    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
+    addBoard('general', { boardId: 'general' });
+
+    // A submission arrives → triggers event-driven publish with ranked feeds
+    const ref = 'e1'.repeat(32);
+    mockFetchEvents.mock.mockImplementation(async () => ({
+      ...emptyEvents,
+      submissions: [{ submissionRef: ref, author: VALID_ADDRESS, blockNumber: 100, logIndex: 0 }],
+    }));
+    const submission = {
+      protocol: TYPES.SUBMISSION,
+      boardId: 'general', kind: 'post',
+      contentRef: VALID_BZZ_2,
+      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      createdAt: Date.now(),
+    };
+    const post = {
+      protocol: TYPES.POST,
+      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      title: 'T', body: { kind: 'markdown', text: 'x' },
+      createdAt: Date.now(),
+    };
+    let n = 0;
+    mockFetchObject.mock.mockImplementation(async () => {
+      n++;
+      return n === 1 ? submission : post;
+    });
+
+    await pollOnce();
+
+    // last_ranked_refresh_at should be set by the event-driven publish
+    const lastRefresh = getMeta('last_ranked_refresh_at');
+    assert.ok(lastRefresh, 'last_ranked_refresh_at should be set after event-driven ranked publish');
+    assert.ok(parseInt(lastRefresh, 10) > 0);
   });
 
   it('MAX_BLOCKS_PER_POLL caps toBlock', async () => {
