@@ -69,6 +69,8 @@ So there is still no single mandatory front page, score interpretation, or `hot`
 5. Vote inputs MAY be canonical without making ranking canonical.
 6. Curators MAY ignore votes, partially use votes, or weight votes differently.
 7. This patch MUST NOT introduce a Swarm `vote` object.
+8. `SwarmitRegistryV2` SHOULD expose only one canonical on-chain submission identity: `bytes32 submissionId`.
+9. `SwarmitRegistryV2` SHOULD NOT accept or emit an independent `submissionRef` string.
 
 ## Canonical Vote Semantics
 
@@ -83,6 +85,10 @@ This aligns voting with the protocol's existing canonical identity model:
 
 - off-chain `submissionId` is the normalized `bzz://<hex>` form
 - on-chain `submissionId` is the `bytes32` binary form
+
+For `SwarmitRegistryV2`, the on-chain contract surface SHOULD use only the `bytes32` form.
+
+Off-chain systems SHOULD reconstruct the normalized `bzz://<hex>` form from `submissionId` when needed.
 
 ### `direction`
 
@@ -322,6 +328,42 @@ This bookkeeping exists only to support auditable vote signaling and vote-scoped
 The contract still MUST NOT store post bodies, reply bodies, board indexes, or thread indexes.
 ```
 
+### Patch Submission Announcement Identity Surface
+
+Insert into the submission-announcement and minimal-interface sections:
+
+```md
+In `SwarmitRegistryV2`, `submissionId` SHOULD be the only canonical on-chain submission identity.
+
+`SwarmitRegistryV2` SHOULD therefore:
+
+- accept `bytes32 submissionId` in `announceSubmission`
+- emit `bytes32 submissionId` in `SubmissionAnnounced`
+- NOT accept an additional `submissionRef` string argument
+- NOT emit an additional `submissionRef` string field
+
+Off-chain clients and indexers SHOULD reconstruct the canonical normalized `bzz://<hex>` form from `submissionId`.
+```
+
+Recommended `SwarmitRegistryV2` submission-announcement surface:
+
+```solidity
+event SubmissionAnnounced(
+  bytes32 indexed boardId,
+  bytes32 indexed submissionId,
+  bytes32 parentSubmissionId,
+  bytes32 rootSubmissionId,
+  address author
+);
+
+function announceSubmission(
+  bytes32 boardId,
+  bytes32 submissionId,
+  bytes32 parentSubmissionId,
+  bytes32 rootSubmissionId
+) external;
+```
+
 ### Patch Minimal Write Interface
 
 Amend the minimal write interface to include:
@@ -391,6 +433,12 @@ And add:
 On success, `announceSubmission` MUST persist minimal submission bookkeeping sufficient for later `setVote` calls.
 ```
 
+And add:
+
+```md
+In `SwarmitRegistryV2`, `announceSubmission` SHOULD use only `bytes32 submissionId` as the on-chain submission identity. Off-chain consumers SHOULD derive the normalized `submissionRef` string form from `submissionId`.
+```
+
 ### Add Contract State Guidance
 
 Add the following implementation guidance:
@@ -455,8 +503,10 @@ For this patch, the intended implementation target is a new contract generation 
 
 1. keep board registration and curator declaration behavior equivalent to v1
 2. tighten `announceSubmission` by recording submission existence and preventing duplicate `submissionId` announcements
-3. add first-class vote state and vote totals
-4. emit `VoteSet` whenever vote state changes
+3. remove the redundant `submissionRef` string from the V2 on-chain surface
+4. require off-chain consumers to derive canonical `bzz://<hex>` refs from `submissionId`
+5. add first-class vote state and vote totals
+6. emit `VoteSet` whenever vote state changes
 
 ## Why This Enables Multi-View Feeds
 
