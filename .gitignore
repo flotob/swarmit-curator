@@ -1,4 +1,7 @@
 node_modules/
 .env
 state.json
+state.db
+state.db-wal
+state.db-shm
 .DS_Store

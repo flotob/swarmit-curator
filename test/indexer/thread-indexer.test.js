@@ -1,17 +1,18 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
-const { addSubmission, getSubmissions } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addSubmission } = await import('../../src/indexer/state.js');
 const { buildThreadIndexForRoot } = await import('../../src/indexer/thread-indexer.js');
 const { validateThreadIndex } = await import('../../src/protocol/objects.js');
 
+before(() => initDb(':memory:'));
+after(() => closeDb());
+
 describe('buildThreadIndexForRoot', () => {
-  beforeEach(() => {
-    getSubmissions().clear();
-  });
+  beforeEach(() => resetDb());
 
   it('root post with no replies has 1 node (root at depth 0)', () => {
     const rootRef = bzz('a10000');

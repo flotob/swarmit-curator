@@ -24,15 +24,10 @@ const wallet = new Wallet(config.curatorPrivateKey, provider);
  */
 export function needsProfileUpdate() {
   const published = getPublishedBoardSlugs();
+  if (getFeedBzzUrl('best-global') && !published.has('view:best:global')) return true;
   for (const [slug] of getBoards()) {
-    if (published.has(slug)) continue;
-    const feedUrl = getFeedBzzUrl(`board-${slug}`);
-    if (feedUrl) return true;
-  }
-  // Also trigger if named-view feeds exist but aren't in the published profile
-  if (getFeedBzzUrl('best-global') && !published.has('__best-global')) return true;
-  for (const [slug] of getBoards()) {
-    if (getFeedBzzUrl(`best-board-${slug}`) && !published.has(`__best-${slug}`)) return true;
+    if (!published.has(`board:${slug}`) && getFeedBzzUrl(`board-${slug}`)) return true;
+    if (getFeedBzzUrl(`best-board-${slug}`) && !published.has(`view:best:board:${slug}`)) return true;
   }
   return false;
 }
@@ -98,10 +93,10 @@ export async function publishAndDeclare() {
   console.log(`[Profile] CuratorDeclared tx: ${receipt.hash} (block ${receipt.blockNumber})`);
 
   // Track boards + named-view markers that appear in this profile
-  const publishedKeys = [...Object.keys(boardFeeds)];
-  if (globalViewFeeds.best) publishedKeys.push('__best-global');
+  const publishedKeys = Object.keys(boardFeeds).map((slug) => `board:${slug}`);
+  if (globalViewFeeds.best) publishedKeys.push('view:best:global');
   for (const slug of Object.keys(boardViewFeeds)) {
-    if (boardViewFeeds[slug].best) publishedKeys.push(`__best-${slug}`);
+    if (boardViewFeeds[slug].best) publishedKeys.push(`view:best:board:${slug}`);
   }
   setPublishedBoardSlugs(publishedKeys);
 

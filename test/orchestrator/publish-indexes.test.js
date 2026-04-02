@@ -43,21 +43,23 @@ mock.module('../../src/publisher/profile-manager.js', {
 
 const { publishIndexes, publishGlobalAndProfile } = await import('../../src/indexer/orchestrator.js');
 const {
-  addBoard, addSubmission, getBoards, getSubmissions,
+  initDb, closeDb, resetDb,
+  addBoard, addSubmission,
   setRepublishBoards, getRepublishBoards,
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile, getRepublishProfile,
   setRetrySubmissions,
 } = await import('../../src/indexer/state.js');
 
+import { before, after } from 'node:test';
+before(() => initDb(':memory:'));
+after(() => closeDb());
+
 // --- Tests: publishIndexes ---
 
 describe('publishIndexes', () => {
   beforeEach(() => {
-    getBoards().clear();
-    getSubmissions().clear();
-    setRepublishBoards(new Set());
-    setRetrySubmissions([]);
+    resetDb();
     mockPublishAndUpdateFeed.mock.resetCalls();
   });
 
@@ -118,10 +120,7 @@ describe('publishIndexes', () => {
 
 describe('publishGlobalAndProfile', () => {
   beforeEach(() => {
-    getBoards().clear();
-    getSubmissions().clear();
-    setRepublishGlobal(false);
-    setRepublishProfile(false);
+    resetDb();
     mockPublishAndUpdateFeed.mock.resetCalls();
     mockPublishAndDeclare.mock.resetCalls();
     mockNeedsProfileUpdate.mock.mockImplementation(() => false);

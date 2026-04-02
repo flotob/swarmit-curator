@@ -60,17 +60,19 @@ mock.module('../../src/swarm/client.js', {
 
 const { needsProfileUpdate, publishAndDeclare } = await import('../../src/publisher/profile-manager.js');
 const {
-  addBoard, getBoards, setFeed,
+  initDb, closeDb, resetDb,
+  addBoard, setFeed,
   getPublishedBoardSlugs, setPublishedBoardSlugs,
 } = await import('../../src/indexer/state.js');
+
+import { before, after } from 'node:test';
+before(() => initDb(':memory:'));
+after(() => closeDb());
 
 // --- Tests ---
 
 describe('needsProfileUpdate', () => {
-  beforeEach(() => {
-    getBoards().clear();
-    setPublishedBoardSlugs([]);
-  });
+  beforeEach(() => resetDb());
 
   it('no boards → false', () => {
     assert.equal(needsProfileUpdate(), false);
@@ -78,7 +80,8 @@ describe('needsProfileUpdate', () => {
 
   it('all boards already published → false', () => {
     addBoard('general', { boardId: 'general' });
-    setPublishedBoardSlugs(['general']);
+    setFeed('board-general', 'c'.repeat(64));
+    setPublishedBoardSlugs(['board:general']);
     assert.equal(needsProfileUpdate(), false);
   });
 
@@ -86,15 +89,14 @@ describe('needsProfileUpdate', () => {
     addBoard('general', { boardId: 'general' });
     addBoard('tech', { boardId: 'tech' });
     setFeed('board-tech', 'c'.repeat(64));
-    setPublishedBoardSlugs(['general']);
+    setPublishedBoardSlugs(['board:general']);
     assert.equal(needsProfileUpdate(), true);
   });
 });
 
 describe('publishAndDeclare', () => {
   beforeEach(() => {
-    getBoards().clear();
-    setPublishedBoardSlugs([]);
+    resetDb();
     mockPublishJSON.mock.resetCalls();
     mockSendTransaction.mock.resetCalls();
     mockPublishJSON.mock.mockImplementation(async () => 'a'.repeat(64));
@@ -121,6 +123,8 @@ describe('publishAndDeclare', () => {
     setFeed('board-general', 'cc'.repeat(32));
     setFeed('board-tech', 'dd'.repeat(32));
     setFeed('global', 'ee'.repeat(32));
+    setFeed('best-global', 'ff'.repeat(32));
+    setFeed('best-board-tech', 'ab'.repeat(32));
 
     const result = await publishAndDeclare();
 
@@ -142,7 +146,12 @@ describe('publishAndDeclare', () => {
     assert.equal(tx.data, expectedData);
     assert.equal(tx.to, TEST_CONFIG.contractAddress);
 
-    assert.ok(getPublishedBoardSlugs().has('general'));
-    assert.ok(getPublishedBoardSlugs().has('tech'));
+    // Verify published profile keys use structured naming
+    const published = getPublishedBoardSlugs();
+    assert.ok(published.has('board:general'));
+    assert.ok(published.has('board:tech'));
+    assert.ok(published.has('view:best:global'));
+    assert.ok(published.has('view:best:board:tech'));
+    assert.ok(!published.has('__best-global'));  // no legacy sentinels
   });
 });

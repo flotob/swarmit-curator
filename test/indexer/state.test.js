@@ -1,228 +1,161 @@
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, readdir, writeFile } from 'fs/promises';
-import { tmpdir } from 'os';
-import { join } from 'path';
-import { setupTestEnv, VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3 } from '../helpers/fixtures.js';
+import { VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3 } from '../helpers/fixtures.js';
 
-setupTestEnv();
-
-const config = (await import('../../src/config.js')).default;
-const {
-  loadState, saveState,
+import {
+  initDb, closeDb, resetDb,
   getLastProcessedBlock, setLastProcessedBlock,
-  getBoards, addBoard, getKnownBoardSlugs,
-  getSubmissions, addSubmission, getSubmissionsForBoard,
+  addBoard, getAllBoards, getBoards, getKnownBoardSlugs,
+  addSubmission, hasSubmission, getSubmissions, getSubmissionsForBoard,
   getRootSubmissions, getRepliesForRoot,
-  getVotes, getVotesForSubmission, applyVoteEvent,
+  applyVoteEvent, getVotesForSubmission,
   getFeed, setFeed,
   getRetrySubmissions, setRetrySubmissions,
   getRepublishBoards, setRepublishBoards,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
   getPublishedBoardSlugs, setPublishedBoardSlugs,
-} = await import('../../src/indexer/state.js');
+  loadState, saveState,
+} from '../../src/indexer/state.js';
 
-let tmpDir;
+before(() => initDb(':memory:'));
+after(() => closeDb());
+beforeEach(() => resetDb());
 
-before(async () => {
-  tmpDir = await mkdtemp(join(tmpdir(), 'swarmit-test-'));
-});
+// =============================================
+// DB lifecycle
+// =============================================
 
-after(async () => {
-  await rm(tmpDir, { recursive: true });
-});
+describe('DB lifecycle', () => {
+  it('resetDb clears all data', () => {
+    addBoard('test', { boardId: 'test' });
+    addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    setLastProcessedBlock(100);
+    resetDb();
+    assert.equal(getAllBoards().length, 0);
+    assert.equal(hasSubmission(VALID_BZZ), false);
+    assert.equal(getLastProcessedBlock(), null);
+  });
 
-beforeEach(() => {
-  // Point state file to a unique temp file
-  config.stateFile = join(tmpDir, `state-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
+  it('loadState is a no-op stub', async () => {
+    const result = await loadState();
+    assert.equal(result, false);
+  });
 
-  // Reset in-memory state
-  setLastProcessedBlock(-1);
-  getBoards().clear();
-  getSubmissions().clear();
-  getVotes().clear();
-  setRetrySubmissions([]);
-  setRepublishBoards(new Set());
-  setRepublishGlobal(false);
-  setRepublishProfile(false);
-  setPublishedBoardSlugs([]);
+  it('saveState is a no-op stub', async () => {
+    await saveState(); // should not throw
+  });
 });
 
 // =============================================
-// Save + load round-trip
+// Meta (lastProcessedBlock, republish flags)
 // =============================================
 
-describe('save + load round-trip', () => {
-  it('preserves all fields', async () => {
+describe('meta state', () => {
+  it('lastProcessedBlock returns null when not set', () => {
+    assert.equal(getLastProcessedBlock(), null);
+  });
+
+  it('lastProcessedBlock round-trip', () => {
     setLastProcessedBlock(42);
-    addBoard('test-board', { boardId: 'test-board', slug: 'test-board' });
-    addSubmission(VALID_BZZ, {
-      boardId: 'test-board', kind: 'post', contentRef: VALID_BZZ_2,
-      blockNumber: 10, logIndex: 0, author: '0xabc',
-    });
-    setFeed('test-feed', 'ab'.repeat(32));
-    setPublishedBoardSlugs(['test-board']);
-    setRetrySubmissions([{ submissionRef: VALID_BZZ, author: '0xabc', blockNumber: 10, logIndex: 0 }]);
-    setRepublishBoards(new Set(['test-board']));
-    setRepublishGlobal(true);
-    setRepublishProfile(true);
-
-    await saveState();
-
-    // Reset everything
-    setLastProcessedBlock(0);
-    getBoards().clear();
-    getSubmissions().clear();
-    setRetrySubmissions([]);
-    setRepublishBoards(new Set());
-    setRepublishGlobal(false);
-    setRepublishProfile(false);
-    setPublishedBoardSlugs([]);
-
-    const loaded = await loadState();
-    assert.equal(loaded, true);
     assert.equal(getLastProcessedBlock(), 42);
-    assert.equal(getBoards().size, 1);
-    assert.ok(getBoards().has('test-board'));
-    assert.equal(getSubmissions().size, 1);
-    assert.ok(getSubmissions().has(VALID_BZZ));
-    assert.equal(getFeed('test-feed'), 'ab'.repeat(32));
-    assert.deepEqual([...getPublishedBoardSlugs()], ['test-board']);
-    assert.equal(getRetrySubmissions().length, 1);
-    assert.equal(getRepublishBoards().size, 1);
-    assert.ok(getRepublishBoards().has('test-board'));
-    assert.equal(getRepublishGlobal(), true);
-    assert.equal(getRepublishProfile(), true);
-  });
-});
-
-// =============================================
-// Atomic write
-// =============================================
-
-describe('atomic write', () => {
-  it('temp file is cleaned up after save', async () => {
-    await saveState();
-    const files = await readdir(tmpDir);
-    const tmpFiles = files.filter(f => f.endsWith('.tmp'));
-    assert.equal(tmpFiles.length, 0);
-  });
-});
-
-// =============================================
-// Missing state file
-// =============================================
-
-describe('missing state file', () => {
-  it('loadState returns false, fresh state', async () => {
-    config.stateFile = join(tmpDir, 'nonexistent.json');
-    const loaded = await loadState();
-    assert.equal(loaded, false);
-  });
-});
-
-// =============================================
-// Corrupt state file
-// =============================================
-
-describe('corrupt state file', () => {
-  it('loadState returns false with warning, fresh state', async () => {
-    await writeFile(config.stateFile, 'not valid json!!!');
-    const loaded = await loadState();
-    assert.equal(loaded, false);
-  });
-});
-
-// =============================================
-// Retry state round-trip
-// =============================================
-
-describe('retry state fields survive round-trip', () => {
-  it('retrySubmissions', async () => {
-    setRetrySubmissions([{ submissionRef: VALID_BZZ }]);
-    await saveState();
-    setRetrySubmissions([]);
-    await loadState();
-    assert.equal(getRetrySubmissions().length, 1);
   });
 
-  it('republishBoards', async () => {
-    setRepublishBoards(new Set(['board-a', 'board-b']));
-    await saveState();
-    setRepublishBoards(new Set());
-    await loadState();
-    assert.equal(getRepublishBoards().size, 2);
-  });
-
-  it('republishGlobal', async () => {
+  it('republishGlobal round-trip', () => {
+    assert.equal(getRepublishGlobal(), false);
     setRepublishGlobal(true);
-    await saveState();
-    setRepublishGlobal(false);
-    await loadState();
     assert.equal(getRepublishGlobal(), true);
   });
 
-  it('republishProfile', async () => {
+  it('republishProfile round-trip', () => {
+    assert.equal(getRepublishProfile(), false);
     setRepublishProfile(true);
-    await saveState();
-    setRepublishProfile(false);
-    await loadState();
     assert.equal(getRepublishProfile(), true);
   });
 });
 
 // =============================================
-// Query accessors
+// Boards (facade shims)
 // =============================================
 
-describe('getSubmissionsForBoard', () => {
-  it('filters correctly by board', () => {
-    addSubmission(VALID_BZZ, { boardId: 'board-x', kind: 'post' });
-    addSubmission(VALID_BZZ_2, { boardId: 'board-y', kind: 'post' });
+describe('boards facade', () => {
+  it('addBoard + getAllBoards', () => {
+    addBoard('general', { boardId: '0xabc', boardRef: 'ref', governance: { type: 'open' } });
+    const boards = getAllBoards();
+    assert.equal(boards.length, 1);
+    assert.equal(boards[0].slug, 'general');
+    assert.equal(boards[0].boardId, '0xabc');
+  });
 
+  it('getBoards returns Map for backward compat', () => {
+    addBoard('tech', { boardId: '0x123' });
+    const map = getBoards();
+    assert.ok(map instanceof Map);
+    assert.ok(map.has('tech'));
+    const [slug, board] = [...map.entries()][0];
+    assert.equal(slug, 'tech');
+    assert.equal(board.boardId, '0x123');
+  });
+
+  it('getKnownBoardSlugs returns Set', () => {
+    addBoard('a', { boardId: '1' });
+    addBoard('b', { boardId: '2' });
+    const slugs = getKnownBoardSlugs();
+    assert.ok(slugs instanceof Set);
+    assert.ok(slugs.has('a'));
+    assert.ok(slugs.has('b'));
+  });
+});
+
+// =============================================
+// Submissions (facade shims)
+// =============================================
+
+describe('submissions facade', () => {
+  it('addSubmission + hasSubmission', () => {
+    addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    assert.equal(hasSubmission(VALID_BZZ), true);
+    assert.equal(hasSubmission(VALID_BZZ_2), false);
+  });
+
+  it('getSubmissions().has() backward compat', () => {
+    addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    assert.equal(getSubmissions().has(VALID_BZZ), true);
+    assert.equal(getSubmissions().has(VALID_BZZ_2), false);
+  });
+
+  it('getSubmissionsForBoard filters correctly', () => {
+    addSubmission(VALID_BZZ, { boardId: 'board-x', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    addSubmission(VALID_BZZ_2, { boardId: 'board-y', kind: 'post', contentRef: VALID_BZZ, author: '0x1', blockNumber: 2, logIndex: 0 });
     const results = getSubmissionsForBoard('board-x');
     assert.equal(results.length, 1);
-    assert.ok(results.every(r => r.boardId === 'board-x'));
+    assert.equal(results[0].boardId, 'board-x');
   });
-});
 
-describe('getRootSubmissions', () => {
-  it('excludes replies', () => {
-    const rootRef = VALID_BZZ;
-    addSubmission(rootRef, { boardId: 'board-z', kind: 'post' });
-    addSubmission(VALID_BZZ_2, { boardId: 'board-z', kind: 'reply', rootSubmissionId: rootRef });
-
+  it('getRootSubmissions excludes replies', () => {
+    addSubmission(VALID_BZZ, { boardId: 'board-z', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    addSubmission(VALID_BZZ_2, { boardId: 'board-z', kind: 'reply', contentRef: VALID_BZZ, rootSubmissionId: VALID_BZZ, author: '0x1', blockNumber: 2, logIndex: 0 });
     const roots = getRootSubmissions('board-z');
     assert.equal(roots.length, 1);
     assert.equal(roots[0].kind, 'post');
   });
-});
 
-describe('getRepliesForRoot', () => {
-  it('finds all replies for a root', () => {
-    const rootRef = VALID_BZZ;
-    addSubmission(rootRef, { boardId: 'board-w', kind: 'post' });
-    addSubmission(VALID_BZZ_2, { boardId: 'board-w', kind: 'reply', rootSubmissionId: rootRef });
-    addSubmission(VALID_BZZ_3, { boardId: 'board-w', kind: 'reply', rootSubmissionId: rootRef });
-
-    const replies = getRepliesForRoot(rootRef);
+  it('getRepliesForRoot finds all replies', () => {
+    addSubmission(VALID_BZZ, { boardId: 'board-w', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
+    addSubmission(VALID_BZZ_2, { boardId: 'board-w', kind: 'reply', contentRef: VALID_BZZ, rootSubmissionId: VALID_BZZ, author: '0x1', blockNumber: 2, logIndex: 0 });
+    addSubmission(VALID_BZZ_3, { boardId: 'board-w', kind: 'reply', contentRef: VALID_BZZ, rootSubmissionId: VALID_BZZ, author: '0x1', blockNumber: 3, logIndex: 0 });
+    const replies = getRepliesForRoot(VALID_BZZ);
     assert.equal(replies.length, 2);
   });
 });
 
 // =============================================
-// Vote state
+// Votes
 // =============================================
 
 describe('applyVoteEvent', () => {
-  it('stores vote totals from event', () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 3, downvotes: 1,
-      blockNumber: 100, logIndex: 0,
-    });
-
+  it('stores vote totals', () => {
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 3, downvotes: 1, blockNumber: 100, logIndex: 0 });
     const v = getVotesForSubmission(VALID_BZZ);
     assert.equal(v.upvotes, 3);
     assert.equal(v.downvotes, 1);
@@ -230,71 +163,28 @@ describe('applyVoteEvent', () => {
     assert.equal(v.updatedAtBlock, 100);
   });
 
-  it('updates totals from newer event', () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 3, downvotes: 1,
-      blockNumber: 100, logIndex: 0,
-    });
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 4, downvotes: 1,
-      blockNumber: 101, logIndex: 0,
-    });
-
-    const v = getVotesForSubmission(VALID_BZZ);
-    assert.equal(v.upvotes, 4);
-    assert.equal(v.score, 3);
+  it('updates with newer event', () => {
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 3, downvotes: 1, blockNumber: 100, logIndex: 0 });
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 4, downvotes: 1, blockNumber: 101, logIndex: 0 });
+    assert.equal(getVotesForSubmission(VALID_BZZ).upvotes, 4);
   });
 
   it('ignores stale event (older block)', () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 5, downvotes: 2,
-      blockNumber: 200, logIndex: 0,
-    });
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 1, downvotes: 0,
-      blockNumber: 100, logIndex: 0,
-    });
-
-    const v = getVotesForSubmission(VALID_BZZ);
-    assert.equal(v.upvotes, 5);
-    assert.equal(v.updatedAtBlock, 200);
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 5, downvotes: 2, blockNumber: 200, logIndex: 0 });
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 1, downvotes: 0, blockNumber: 100, logIndex: 0 });
+    assert.equal(getVotesForSubmission(VALID_BZZ).upvotes, 5);
   });
 
   it('ignores stale event (same block, older logIndex)', () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 5, downvotes: 2,
-      blockNumber: 200, logIndex: 5,
-    });
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 1, downvotes: 0,
-      blockNumber: 200, logIndex: 3,
-    });
-
-    const v = getVotesForSubmission(VALID_BZZ);
-    assert.equal(v.upvotes, 5);
-    assert.equal(v.updatedAtLogIndex, 5);
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 5, downvotes: 2, blockNumber: 200, logIndex: 5 });
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 1, downvotes: 0, blockNumber: 200, logIndex: 3 });
+    assert.equal(getVotesForSubmission(VALID_BZZ).upvotes, 5);
   });
 
-  it('ignores duplicate event (same block and logIndex)', () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 5, downvotes: 2,
-      blockNumber: 200, logIndex: 5,
-    });
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 99, downvotes: 99,
-      blockNumber: 200, logIndex: 5,
-    });
-
-    const v = getVotesForSubmission(VALID_BZZ);
-    assert.equal(v.upvotes, 5);
+  it('ignores duplicate event', () => {
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 5, downvotes: 2, blockNumber: 200, logIndex: 5 });
+    applyVoteEvent({ submissionRef: VALID_BZZ, upvotes: 99, downvotes: 99, blockNumber: 200, logIndex: 5 });
+    assert.equal(getVotesForSubmission(VALID_BZZ).upvotes, 5);
   });
 
   it('returns null for unknown submission', () => {
@@ -302,22 +192,63 @@ describe('applyVoteEvent', () => {
   });
 });
 
-describe('vote state persistence', () => {
-  it('survives save + load round-trip', async () => {
-    applyVoteEvent({
-      submissionRef: VALID_BZZ,
-      upvotes: 10, downvotes: 3,
-      blockNumber: 500, logIndex: 2,
-    });
+// =============================================
+// Feeds
+// =============================================
 
-    await saveState();
-    getVotes().clear();
-    assert.equal(getVotesForSubmission(VALID_BZZ), null);
+describe('feeds', () => {
+  it('get/set round-trip', () => {
+    setFeed('global', 'ab'.repeat(32));
+    assert.equal(getFeed('global'), 'ab'.repeat(32));
+  });
 
-    await loadState();
-    const v = getVotesForSubmission(VALID_BZZ);
-    assert.equal(v.upvotes, 10);
-    assert.equal(v.downvotes, 3);
-    assert.equal(v.score, 7);
+  it('returns null for unknown', () => {
+    assert.equal(getFeed('nope'), null);
+  });
+});
+
+// =============================================
+// Retry submissions
+// =============================================
+
+describe('retry submissions', () => {
+  it('set + get round-trip', () => {
+    setRetrySubmissions([{ submissionRef: VALID_BZZ, author: '0x1', blockNumber: 10, logIndex: 0 }]);
+    assert.equal(getRetrySubmissions().length, 1);
+    assert.equal(getRetrySubmissions()[0].submissionRef, VALID_BZZ);
+  });
+
+  it('replaces on set', () => {
+    setRetrySubmissions([{ submissionRef: VALID_BZZ, author: '0x1', blockNumber: 10, logIndex: 0 }]);
+    setRetrySubmissions([{ submissionRef: VALID_BZZ_2, author: '0x2', blockNumber: 11, logIndex: 0 }]);
+    assert.equal(getRetrySubmissions().length, 1);
+    assert.equal(getRetrySubmissions()[0].submissionRef, VALID_BZZ_2);
+  });
+});
+
+// =============================================
+// Republish boards
+// =============================================
+
+describe('republish boards', () => {
+  it('get/set round-trip', () => {
+    setRepublishBoards(new Set(['a', 'b']));
+    const boards = getRepublishBoards();
+    assert.ok(boards.has('a'));
+    assert.ok(boards.has('b'));
+    assert.equal(boards.size, 2);
+  });
+});
+
+// =============================================
+// Published board slugs (backward compat)
+// =============================================
+
+describe('published board slugs', () => {
+  it('set + get round-trip', () => {
+    setPublishedBoardSlugs(['board:tech', 'view:best:global']);
+    const keys = getPublishedBoardSlugs();
+    assert.ok(keys.has('board:tech'));
+    assert.ok(keys.has('view:best:global'));
   });
 });

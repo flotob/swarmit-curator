@@ -10,12 +10,13 @@ import { validateIngestedSubmission, validateIngestedContent, validateReplyConsi
 import {
   saveState,
   getLastProcessedBlock, setLastProcessedBlock,
-  getBoards, addBoard, getKnownBoardSlugs,
+  inTransaction,
+  getBoards, addBoard, getKnownBoardSlugs, updateBoardMetadata,
   getSubmissions, addSubmission,
   getRootSubmissions,
   getRetrySubmissions, setRetrySubmissions,
   applyVoteEvent,
-  getRepublishBoards, setRepublishBoards,
+  getRepublishBoards, setRepublishBoards, addRepublishBoard,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
 } from './state.js';
@@ -53,18 +54,12 @@ export async function processEvents(fromBlock, toBlock) {
 
   // 2. Process board metadata updates
   for (const update of events.metadataUpdates) {
-    const boards = getBoards();
-    for (const [slug, board] of boards) {
-      if (board.boardId === update.boardId) {
-        board.boardRef = update.boardRef;
-        console.log(`[Ingest] Board metadata updated: r/${slug}`);
-        break;
-      }
-    }
+    updateBoardMetadata(update.boardId, update.boardRef);
+    console.log(`[Ingest] Board metadata updated: boardId=${update.boardId}`);
   }
 
   // 3. Process submissions (new events + retry queue)
-  const retryQueue = getRetrySubmissions().splice(0);
+  const retryQueue = getRetrySubmissions();
   const toProcess = [...events.submissions, ...retryQueue];
   const stillPending = [];
 
@@ -250,19 +245,33 @@ export async function pollOnce() {
     changedBoards = result.changedBoards;
     changedThreads = result.changedThreads;
 
-    setLastProcessedBlock(toBlock);
+    // Persist cursor AND dirty markers in a single transaction before publishing.
+    // If we crash after this but before publish, restart will see the
+    // dirty markers and republish even though the blocks won't be replayed.
+    inTransaction(() => {
+      setLastProcessedBlock(toBlock);
+      if (changedBoards.size > 0) {
+        for (const slug of changedBoards) addRepublishBoard(slug);
+        setRepublishGlobal(true);
+      }
+    });
   } else if (getRetrySubmissions().length > 0) {
     // No new blocks but retries pending — process empty range to drain retry queue
     const result = await processEvents(fromBlock, fromBlock - 1);
     changedBoards = result.changedBoards;
     changedThreads = result.changedThreads;
+
+    if (changedBoards.size > 0) {
+      inTransaction(() => {
+        for (const slug of changedBoards) addRepublishBoard(slug);
+        setRepublishGlobal(true);
+      });
+    }
   }
 
-  // Publish board/thread indexes
+  // Publish board/thread indexes (republishBoards includes anything from above)
   if (changedBoards.size > 0 || getRepublishBoards().size > 0) {
     await publishIndexes(changedBoards, changedThreads);
-    // Mark global for publish if boards changed
-    if (!getRepublishGlobal()) setRepublishGlobal(true);
   }
 
   // Global + profile — always checked independently of board changes

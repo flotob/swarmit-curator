@@ -22,7 +22,11 @@ mock.module('../../src/swarm/client.js', {
 });
 
 const { publishAndUpdateFeed, getFeedBzzUrl } = await import('../../src/publisher/feed-manager.js');
-const { getFeed, setFeed } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, getFeed, setFeed } = await import('../../src/indexer/state.js');
+
+import { before, after } from 'node:test';
+before(() => initDb(':memory:'));
+after(() => closeDb());
 
 describe('publishAndUpdateFeed', () => {
   beforeEach(() => {

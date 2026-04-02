@@ -1,217 +1,91 @@
 /**
- * Persistent state manager — rebuildable cache backed by JSON file.
- * Chain + Swarm are the source of truth; this is an optimization to avoid re-scanning.
- * Writes are atomic (write to temp file, then rename).
+ * State facade — delegates to SQLite repos.
+ * Maintains the same export names as the original Map/Set-based state.js
+ * for backward compatibility during migration. Callers are updated in WP4.
+ *
+ * Chain + Swarm are the source of truth; SQLite is the rebuildable local cache.
  */
 
-import { readFile, writeFile, rename } from 'fs/promises';
-import { existsSync } from 'fs';
-import config from '../config.js';
+// Re-export DB lifecycle
+export { initDb, closeDb, resetDb, inTransaction } from '../db/sqlite.js';
+
+// --- Meta ---
+export {
+  getLastProcessedBlock, setLastProcessedBlock,
+  getRepublishGlobal, setRepublishGlobal,
+  getRepublishProfile, setRepublishProfile,
+} from '../db/repos/meta.js';
+
+// --- Boards ---
+export { addBoard, getAllBoards, getKnownBoardSlugs } from '../db/repos/boards.js';
+export { updateBoardRef as updateBoardMetadata } from '../db/repos/boards.js';
+
+import { getAllBoards as _getAllBoards } from '../db/repos/boards.js';
 
 /**
- * @typedef {Object} SubmissionEntry
- * @property {string} submissionRef - bzz:// ref
- * @property {string} boardId - board slug
- * @property {string} kind - 'post' or 'reply'
- * @property {string} contentRef - bzz:// ref to post/reply content
- * @property {string|null} parentSubmissionId - null for top-level posts
- * @property {string|null} rootSubmissionId - self for top-level posts
- * @property {string} author - Ethereum address
- * @property {number} blockNumber
- * @property {number} logIndex
+ * @deprecated Callers should use getAllBoards() which returns an array.
+ * This shim returns a Map for backward compat with `for (const [slug, board] of getBoards())`.
  */
+export function getBoards() {
+  return new Map(_getAllBoards().map((b) => [b.slug, b]));
+}
 
-const state = {
-  lastProcessedBlock: config.contractDeployBlock - 1,
+// --- Submissions ---
+export { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../db/repos/submissions.js';
 
-  // board slug → { boardId, slug, boardRef, governance }
-  boards: new Map(),
-
-  // submissionRef (bzz://) → SubmissionEntry
-  submissions: new Map(),
-
-  // Feed manifest references (stable URLs)
-  // feedName → manifest hex
-  feeds: new Map(),
-
-  // submissionRef (bzz://) → { upvotes, downvotes, score, updatedAtBlock, updatedAtLogIndex }
-  votes: new Map(),
-
-  // Track which boards are in the current published curatorProfile
-  publishedBoardSlugs: new Set(),
-
-  // Retry queues — persisted so restarts don't lose pending work
-  retrySubmissions: [],       // { submissionRef, author, blockNumber, logIndex }
-  republishBoards: new Set(), // board slugs needing feed republish
-  republishGlobal: false,
-  republishProfile: false,
-};
+import { hasSubmission as _hasSubmission } from '../db/repos/submissions.js';
 
 /**
- * Load state from the JSON file. Returns false if no file exists.
+ * @deprecated Use hasSubmission(ref) instead.
+ * Shim for backward compat with `getSubmissions().has(ref)`.
+ */
+export function getSubmissions() {
+  return { has: (ref) => _hasSubmission(ref) };
+}
+
+// --- Votes ---
+export { applyVoteEvent, getVotesForSubmission } from '../db/repos/votes.js';
+
+// --- Feeds ---
+export { getFeed, setFeed } from '../db/repos/feeds.js';
+
+// --- Published profile keys ---
+export { getPublishedKeys, setPublishedKeys, hasPublishedKey } from '../db/repos/published.js';
+
+import { getPublishedKeys as _getPublishedKeys, setPublishedKeys as _setPublishedKeys } from '../db/repos/published.js';
+
+/**
+ * @deprecated Use getPublishedKeys() / hasPublishedKey() instead.
+ */
+export function getPublishedBoardSlugs() {
+  return _getPublishedKeys();
+}
+
+/**
+ * @deprecated Use setPublishedKeys() instead.
+ */
+export function setPublishedBoardSlugs(keys) {
+  _setPublishedKeys(Array.isArray(keys) ? keys : [...keys]);
+}
+
+// --- Retry submissions ---
+export { getRetrySubmissions, setRetrySubmissions } from '../db/repos/retries.js';
+
+// --- Republish boards ---
+export { getRepublishBoards, setRepublishBoards, addRepublishBoard } from '../db/repos/republish-boards.js';
+
+// --- Stubs for removed functions ---
+
+/**
+ * @deprecated DB is initialized via initDb(). This is a no-op stub.
  */
 export async function loadState() {
-  if (!existsSync(config.stateFile)) return false;
-
-  try {
-    const raw = await readFile(config.stateFile, 'utf-8');
-    const data = JSON.parse(raw);
-
-    state.lastProcessedBlock = data.lastProcessedBlock ?? state.lastProcessedBlock;
-    state.boards = new Map(Object.entries(data.boards || {}));
-    state.submissions = new Map(Object.entries(data.submissions || {}));
-    state.votes = new Map(Object.entries(data.votes || {}));
-    state.feeds = new Map(Object.entries(data.feeds || {}));
-    state.publishedBoardSlugs = new Set(data.publishedBoardSlugs || []);
-    state.retrySubmissions = data.retrySubmissions || [];
-    state.republishBoards = new Set(data.republishBoards || []);
-    state.republishGlobal = data.republishGlobal || false;
-    state.republishProfile = data.republishProfile || false;
-
-    return true;
-  } catch (err) {
-    console.warn(`[State] Failed to load ${config.stateFile}: ${err.message}. Starting fresh.`);
-    return false;
-  }
+  return false;
 }
 
 /**
- * Save state to the JSON file. Atomic write via temp file + rename.
+ * @deprecated Writes are immediate with SQLite. This is a no-op stub.
  */
 export async function saveState() {
-  const data = {
-    lastProcessedBlock: state.lastProcessedBlock,
-    boards: Object.fromEntries(state.boards),
-    submissions: Object.fromEntries(state.submissions),
-    votes: Object.fromEntries(state.votes),
-    feeds: Object.fromEntries(state.feeds),
-    publishedBoardSlugs: [...state.publishedBoardSlugs],
-    retrySubmissions: state.retrySubmissions,
-    republishBoards: [...state.republishBoards],
-    republishGlobal: state.republishGlobal,
-    republishProfile: state.republishProfile,
-  };
-
-  const tmp = config.stateFile + '.tmp';
-  await writeFile(tmp, JSON.stringify(data, null, 2));
-  await rename(tmp, config.stateFile);
+  // no-op — writes go directly to SQLite
 }
-
-// Accessors
-
-export function getLastProcessedBlock() {
-  return state.lastProcessedBlock;
-}
-
-export function setLastProcessedBlock(block) {
-  state.lastProcessedBlock = block;
-}
-
-export function getBoards() {
-  return state.boards;
-}
-
-export function addBoard(slug, boardData) {
-  state.boards.set(slug, boardData);
-}
-
-export function getKnownBoardSlugs() {
-  return new Set(state.boards.keys());
-}
-
-export function getSubmissions() {
-  return state.submissions;
-}
-
-export function addSubmission(submissionRef, entry) {
-  state.submissions.set(submissionRef, entry);
-}
-
-export function getSubmissionsForBoard(boardSlug) {
-  const results = [];
-  for (const [ref, sub] of state.submissions) {
-    if (sub.boardId === boardSlug) results.push({ ...sub, submissionRef: ref });
-  }
-  return results;
-}
-
-export function getRootSubmissions(boardSlug) {
-  return getSubmissionsForBoard(boardSlug).filter((s) => s.kind === 'post');
-}
-
-export function getRepliesForRoot(rootSubmissionRef) {
-  const results = [];
-  for (const [ref, sub] of state.submissions) {
-    if (sub.rootSubmissionId === rootSubmissionRef && sub.kind === 'reply') {
-      results.push({ ...sub, submissionRef: ref });
-    }
-  }
-  return results;
-}
-
-export function getVotes() {
-  return state.votes;
-}
-
-export function getVotesForSubmission(submissionRef) {
-  return state.votes.get(submissionRef) || null;
-}
-
-/**
- * Apply a decoded VoteSet event to vote state.
- * Ignores stale events (older block/logIndex than current state).
- */
-/**
- * Apply a decoded VoteSet event to vote state.
- * Ignores stale events (older block/logIndex than current state).
- * @returns {boolean} true if state was actually changed
- */
-export function applyVoteEvent(voteEvent) {
-  const submissionRef = voteEvent.submissionRef;
-  const existing = state.votes.get(submissionRef);
-
-  if (existing) {
-    const existingOrder = existing.updatedAtBlock * 1e6 + existing.updatedAtLogIndex;
-    const eventOrder = voteEvent.blockNumber * 1e6 + voteEvent.logIndex;
-    if (eventOrder <= existingOrder) return false;
-  }
-
-  state.votes.set(submissionRef, {
-    upvotes: voteEvent.upvotes,
-    downvotes: voteEvent.downvotes,
-    score: voteEvent.upvotes - voteEvent.downvotes,
-    updatedAtBlock: voteEvent.blockNumber,
-    updatedAtLogIndex: voteEvent.logIndex,
-  });
-  return true;
-}
-
-export function getFeed(feedName) {
-  return state.feeds.get(feedName) || null;
-}
-
-export function setFeed(feedName, manifestRef) {
-  state.feeds.set(feedName, manifestRef);
-}
-
-export function getPublishedBoardSlugs() {
-  return state.publishedBoardSlugs;
-}
-
-export function setPublishedBoardSlugs(slugs) {
-  state.publishedBoardSlugs = new Set(slugs);
-}
-
-// Retry state accessors
-
-export function getRetrySubmissions() { return state.retrySubmissions; }
-export function setRetrySubmissions(subs) { state.retrySubmissions = subs; }
-
-export function getRepublishBoards() { return state.republishBoards; }
-export function setRepublishBoards(set) { state.republishBoards = set; }
-
-export function getRepublishGlobal() { return state.republishGlobal; }
-export function setRepublishGlobal(val) { state.republishGlobal = val; }
-
-export function getRepublishProfile() { return state.republishProfile; }
-export function setRepublishProfile(val) { state.republishProfile = val; }

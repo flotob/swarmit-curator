@@ -1,19 +1,18 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
-// Set env vars before dynamic imports that transitively load config.js
 setupTestEnv();
 
-const { addBoard, addSubmission, getBoards, getSubmissions, setFeed } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addBoard, addSubmission, setFeed } = await import('../../src/indexer/state.js');
 const { buildBoardIndexForBoard } = await import('../../src/indexer/board-indexer.js');
 const { validateBoardIndex } = await import('../../src/protocol/objects.js');
 
+before(() => initDb(':memory:'));
+after(() => closeDb());
+
 describe('buildBoardIndexForBoard', () => {
-  beforeEach(() => {
-    getBoards().clear();
-    getSubmissions().clear();
-  });
+  beforeEach(() => resetDb());
 
   it('empty board produces valid boardIndex with empty entries', () => {
     addBoard('empty-board', { boardId: 'empty-board', slug: 'empty-board' });

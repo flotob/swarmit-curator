@@ -12,13 +12,6 @@ const byNewest = (a, b) => {
   return b.logIndex - a.logIndex;
 };
 
-const byBestThenNewest = (a, b) => {
-  const scoreA = getVotesForSubmission(a.submissionRef)?.score ?? 0;
-  const scoreB = getVotesForSubmission(b.submissionRef)?.score ?? 0;
-  if (scoreB !== scoreA) return scoreB - scoreA;
-  return byNewest(a, b);
-};
-
 function buildEntry(post) {
   const entry = {
     submissionId: post.submissionRef,
@@ -53,7 +46,16 @@ export function buildBoardIndexForBoard(boardSlug) {
 export function buildBestBoardIndex(boardSlug) {
   const posts = getRootSubmissions(boardSlug);
 
-  posts.sort(byBestThenNewest);
+  // Preload scores to avoid per-comparison DB queries
+  const scores = new Map();
+  for (const post of posts) {
+    scores.set(post.submissionRef, getVotesForSubmission(post.submissionRef)?.score ?? 0);
+  }
+
+  posts.sort((a, b) => {
+    const diff = scores.get(b.submissionRef) - scores.get(a.submissionRef);
+    return diff !== 0 ? diff : byNewest(a, b);
+  });
 
   return buildBoardIndex({
     boardId: boardSlug,

@@ -37,8 +37,8 @@ const config = {
   curatorName: process.env.CURATOR_NAME || 'Chronological Curator',
   curatorDescription: process.env.CURATOR_DESCRIPTION || 'Spam-filtered chronological board views',
 
-  // State
-  stateFile: process.env.STATE_FILE || './state.json',
+  // State (SQLite)
+  stateDb: process.env.STATE_DB || './state.db',
 };
 
 // Derive curator address from private key
@@ -61,5 +61,5 @@ if (process.argv[1]?.endsWith('config.js')) {
   console.log(`Postage batch:    ${config.postageBatchId.slice(0, 16)}...`);
   console.log(`Curator address:  ${config.curatorAddress}`);
   console.log(`Curator name:     ${config.curatorName}`);
-  console.log(`State file:       ${config.stateFile}`);
+  console.log(`State DB:         ${config.stateDb}`);
 }

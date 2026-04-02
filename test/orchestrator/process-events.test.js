@@ -44,9 +44,14 @@ mock.module('../../src/publisher/profile-manager.js', {
 
 const { processEvents } = await import('../../src/indexer/orchestrator.js');
 const {
-  getBoards, addBoard, getSubmissions, addSubmission,
-  getRetrySubmissions, setRetrySubmissions, getKnownBoardSlugs,
+  initDb, closeDb, resetDb,
+  addBoard, addSubmission, hasSubmission, getAllBoards,
+  getRetrySubmissions, setRetrySubmissions,
 } = await import('../../src/indexer/state.js');
+
+import { before, after } from 'node:test';
+before(() => initDb(':memory:'));
+after(() => closeDb());
 
 // --- Helpers ---
 
@@ -94,13 +99,10 @@ function makeValidReply() {
 
 describe('processEvents', () => {
   beforeEach(() => {
-    getBoards().clear();
-    getSubmissions().clear();
-    setRetrySubmissions([]);
+    resetDb();
     mockFetchEvents.mock.resetCalls();
     mockFetchObject.mock.resetCalls();
-    // Add known board
-    addBoard('general', { boardId: 'general', slug: 'general' });
+    addBoard('general', { boardId: 'general' });
   });
 
   it('new valid post is added to state and returned in changedBoards/changedThreads', async () => {
@@ -120,7 +122,7 @@ describe('processEvents', () => {
     const result = await processEvents(100, 200);
 
     const bzzRef = `bzz://${ref}`;
-    assert.ok(getSubmissions().has(bzzRef));
+    assert.ok(hasSubmission(bzzRef));
     assert.ok(result.changedBoards.has('general'));
     assert.ok(result.changedThreads.has(bzzRef)); // root ref = self for posts
   });
@@ -133,8 +135,10 @@ describe('processEvents', () => {
 
     await processEvents(100, 200);
 
-    assert.ok(getBoards().has('new-board'));
-    assert.equal(getBoards().get('new-board').boardId, '0xabc');
+    const boards = getAllBoards();
+    const newBoard = boards.find(b => b.slug === 'new-board');
+    assert.ok(newBoard);
+    assert.equal(newBoard.boardId, '0xabc');
   });
 
   it('duplicate submission (already in state) is skipped', async () => {
@@ -151,7 +155,7 @@ describe('processEvents', () => {
 
     // fetchObject should not be called — submission was skipped
     assert.equal(mockFetchObject.mock.callCount(), 0);
-    assert.equal(getSubmissions().size, 1);
+    assert.ok(hasSubmission(bzzRef)); // pre-existing submission still there
   });
 
   it('invalid submissionRef (bad hex) is dropped permanently', async () => {
@@ -162,7 +166,7 @@ describe('processEvents', () => {
 
     await processEvents(100, 200);
 
-    assert.equal(getSubmissions().size, 0);
+    assert.equal(hasSubmission(`bzz://not-valid-hex`), false);
     assert.equal(getRetrySubmissions().length, 0);
   });
 
@@ -172,12 +176,11 @@ describe('processEvents', () => {
       ...emptyEvents,
       submissions: [makeSubmissionEvent(ref)],
     }));
-    // Return invalid submission (missing fields)
     mockFetchObject.mock.mockImplementation(async () => ({ protocol: 'wrong' }));
 
     await processEvents(100, 200);
 
-    assert.equal(getSubmissions().size, 0);
+    assert.equal(hasSubmission(`bzz://${ref}`), false);
     assert.equal(getRetrySubmissions().length, 0);
   });
 
@@ -198,7 +201,7 @@ describe('processEvents', () => {
 
     await processEvents(100, 200);
 
-    assert.equal(getSubmissions().size, 0);
+    assert.equal(hasSubmission(`bzz://${ref}`), false);
     assert.equal(getRetrySubmissions().length, 0);
   });
 
@@ -223,7 +226,7 @@ describe('processEvents', () => {
 
     await processEvents(100, 200);
 
-    assert.equal(getSubmissions().size, 0);
+    assert.equal(hasSubmission(`bzz://${ref}`), false);
     assert.equal(getRetrySubmissions().length, 1);
     assert.equal(getRetrySubmissions()[0].submissionRef, ref);
   });
@@ -241,7 +244,7 @@ describe('processEvents', () => {
 
     await processEvents(100, 200);
 
-    assert.equal(getSubmissions().size, 0);
+    assert.equal(hasSubmission(`bzz://${ref}`), false);
     assert.equal(getRetrySubmissions().length, 1);
   });
 
@@ -277,7 +280,7 @@ describe('processEvents', () => {
 
     await processEvents(200, 199); // empty range, drain retries only
 
-    assert.ok(getSubmissions().has(replyBzz));
+    assert.ok(hasSubmission(replyBzz));
     assert.equal(getRetrySubmissions().length, 0);
   });
 

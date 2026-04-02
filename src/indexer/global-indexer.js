@@ -3,29 +3,18 @@
  */
 
 import { buildGlobalIndex } from '../protocol/objects.js';
-import { getSubmissionsForBoard, getBoards, getVotesForSubmission } from './state.js';
+import { getRootSubmissions, getBoards, getVotesForSubmission } from './state.js';
 import config from '../config.js';
 
-/**
- * Build a globalIndex with recent submissions from all boards.
- * @returns {Object} A valid globalIndex protocol object
- */
 const byNewest = (a, b) => {
   if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
   return b.logIndex - a.logIndex;
 };
 
-const byBestThenNewest = (a, b) => {
-  const scoreA = getVotesForSubmission(a.submissionRef)?.score ?? 0;
-  const scoreB = getVotesForSubmission(b.submissionRef)?.score ?? 0;
-  if (scoreB !== scoreA) return scoreB - scoreA;
-  return byNewest(a, b);
-};
-
 function collectAllPosts() {
   const allPosts = [];
   for (const [slug] of getBoards()) {
-    const posts = getSubmissionsForBoard(slug).filter((s) => s.kind === 'post');
+    const posts = getRootSubmissions(slug);
     for (const post of posts) {
       allPosts.push({ ...post, boardId: slug });
     }
@@ -61,7 +50,16 @@ export function buildGlobalIndexFromState() {
 export function buildBestGlobalIndex() {
   const allPosts = collectAllPosts();
 
-  allPosts.sort(byBestThenNewest);
+  // Preload scores to avoid per-comparison DB queries
+  const scores = new Map();
+  for (const post of allPosts) {
+    scores.set(post.submissionRef, getVotesForSubmission(post.submissionRef)?.score ?? 0);
+  }
+
+  allPosts.sort((a, b) => {
+    const diff = scores.get(b.submissionRef) - scores.get(a.submissionRef);
+    return diff !== 0 ? diff : byNewest(a, b);
+  });
 
   return buildGlobalIndex({
     curator: config.curatorAddress,

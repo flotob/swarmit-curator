@@ -49,24 +49,23 @@ mock.module('../../src/publisher/profile-manager.js', {
 
 const { pollOnce, MAX_BLOCKS_PER_POLL } = await import('../../src/indexer/orchestrator.js');
 const {
+  initDb, closeDb, resetDb,
   getLastProcessedBlock, setLastProcessedBlock,
-  getBoards, addBoard, getSubmissions, addSubmission,
+  addBoard, addSubmission, hasSubmission,
   getRetrySubmissions, setRetrySubmissions,
   setRepublishBoards, getRepublishBoards,
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile,
-  saveState,
 } = await import('../../src/indexer/state.js');
+
+import { before, after } from 'node:test';
+before(() => initDb(':memory:'));
+after(() => closeDb());
 
 // --- Helpers ---
 
 function resetAll() {
-  getBoards().clear();
-  getSubmissions().clear();
-  setRetrySubmissions([]);
-  setRepublishBoards(new Set());
-  setRepublishGlobal(false);
-  setRepublishProfile(false);
+  resetDb();
   setLastProcessedBlock(-1);
 
   mockFetchEvents.mock.resetCalls();
@@ -125,7 +124,7 @@ describe('pollOnce', () => {
 
     assert.equal(result.idle, false);
     assert.equal(getLastProcessedBlock(), 100);
-    assert.ok(getSubmissions().has(`bzz://${ref}`));
+    assert.ok(hasSubmission(`bzz://${ref}`));
   });
 
   it('no new blocks + retry queue → retries drained, cursor NOT advanced', async () => {
@@ -172,7 +171,7 @@ describe('pollOnce', () => {
 
     assert.equal(result.idle, false);
     assert.equal(getLastProcessedBlock(), 100); // NOT advanced
-    assert.ok(getSubmissions().has(`bzz://${replyRef}`));
+    assert.ok(hasSubmission(`bzz://${replyRef}`));
     assert.equal(getRetrySubmissions().length, 0);
   });
 

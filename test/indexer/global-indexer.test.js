@@ -1,18 +1,18 @@
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
-const { addBoard, addSubmission, getBoards, getSubmissions } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addBoard, addSubmission } = await import('../../src/indexer/state.js');
 const { buildGlobalIndexFromState } = await import('../../src/indexer/global-indexer.js');
 const { validateGlobalIndex } = await import('../../src/protocol/objects.js');
 
+before(() => initDb(':memory:'));
+after(() => closeDb());
+
 describe('buildGlobalIndexFromState', () => {
-  beforeEach(() => {
-    getBoards().clear();
-    getSubmissions().clear();
-  });
+  beforeEach(() => resetDb());
 
   it('no boards produces valid globalIndex with empty entries', () => {
     const index = buildGlobalIndexFromState();
