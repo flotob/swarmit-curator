@@ -29,6 +29,9 @@ const BYTES32_ZERO = '0x' + '0'.repeat(64);
 
 const provider = new JsonRpcProvider(config.rpcUrl);
 
+// Block timestamps are immutable — cache them across fetches
+const blockTimestampCache = new Map();
+
 /**
  * Get the latest safe block number (latest minus confirmations).
  */
@@ -38,7 +41,38 @@ export async function getSafeBlockNumber() {
 }
 
 /**
+ * Fetch block timestamps for a set of block numbers.
+ * Uses cache to avoid re-fetching immutable data.
+ * @param {Set<number>} blockNumbers
+ * @returns {Promise<Map<number, number>>} blockNumber → timestamp in ms
+ */
+async function fetchBlockTimestamps(blockNumbers) {
+  const result = new Map();
+  const toFetch = [];
+
+  for (const num of blockNumbers) {
+    if (blockTimestampCache.has(num)) {
+      result.set(num, blockTimestampCache.get(num));
+    } else {
+      toFetch.push(num);
+    }
+  }
+
+  if (toFetch.length > 0) {
+    const blocks = await Promise.all(toFetch.map((n) => provider.getBlock(n)));
+    for (let i = 0; i < toFetch.length; i++) {
+      const tsMs = blocks[i].timestamp * 1000;
+      blockTimestampCache.set(toFetch[i], tsMs);
+      result.set(toFetch[i], tsMs);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Fetch and decode all protocol events in a block range.
+ * Attaches block timestamps (ms) to submissions and votes for time-aware ranking.
  * @param {number} fromBlock
  * @param {number} toBlock
  * @returns {Promise<{ boards: Array, metadataUpdates: Array, submissions: Array, curators: Array, votes: Array }>}
@@ -59,6 +93,13 @@ export async function fetchEvents(fromBlock, toBlock) {
     provider.getLogs({ address: config.contractAddress, topics: [TOPICS.CuratorDeclared], fromBlock: fromHex, toBlock: toHex }),
     provider.getLogs({ address: config.contractAddress, topics: [TOPICS.VoteSet], fromBlock: fromHex, toBlock: toHex }),
   ]);
+
+  // Collect unique block numbers from submissions + votes for timestamp lookup
+  const blockNumbers = new Set();
+  for (const log of subLogs) blockNumbers.add(log.blockNumber);
+  for (const log of voteLogs) blockNumbers.add(log.blockNumber);
+
+  const timestamps = blockNumbers.size > 0 ? await fetchBlockTimestamps(blockNumbers) : new Map();
 
   const boards = boardLogs.map((log) => {
     const parsed = iface.parseLog({ topics: log.topics, data: log.data });
@@ -95,6 +136,7 @@ export async function fetchEvents(fromBlock, toBlock) {
       author: parsed.args.author,
       blockNumber: log.blockNumber,
       logIndex: log.index,
+      blockTimestampMs: timestamps.get(log.blockNumber) || null,
     };
   });
 
@@ -122,6 +164,7 @@ export async function fetchEvents(fromBlock, toBlock) {
       downvotes: Number(parsed.args.downvotes),
       blockNumber: log.blockNumber,
       logIndex: log.index,
+      blockTimestampMs: timestamps.get(log.blockNumber) || null,
     };
   });
 

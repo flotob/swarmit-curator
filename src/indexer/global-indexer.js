@@ -1,21 +1,20 @@
 /**
- * Global indexer — builds globalIndex across all boards.
+ * Global indexer — builds globalIndex across all boards in various sort orders.
  */
 
 import { buildGlobalIndex } from '../protocol/objects.js';
-import { getRootSubmissions, getAllBoards, getVotesForSubmission } from './state.js';
+import { getRootSubmissions, getAllBoards } from './state.js';
+import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';
 
-const byNewest = (a, b) => {
-  if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
-  return b.logIndex - a.logIndex;
-};
-
-function collectAllPosts() {
+/**
+ * Fetch all posts across all boards. Callers should pass this to all
+ * global builders to avoid redundant DB queries.
+ */
+export function collectAllPosts() {
   const allPosts = [];
   for (const { slug } of getAllBoards()) {
-    const posts = getRootSubmissions(slug);
-    for (const post of posts) {
+    for (const post of getRootSubmissions(slug)) {
       allPosts.push({ ...post, boardId: slug });
     }
   }
@@ -30,39 +29,34 @@ function toGlobalEntries(posts) {
   }));
 }
 
-/**
- * Build a globalIndex (chronological, newest first).
- */
-export function buildGlobalIndexFromState() {
-  const allPosts = collectAllPosts();
-
-  allPosts.sort(byNewest);
-
+function buildIndex(posts) {
   return buildGlobalIndex({
     curator: config.curatorAddress,
-    entries: toGlobalEntries(allPosts),
+    entries: toGlobalEntries(posts),
   });
 }
 
-/**
- * Build a "best" globalIndex (score descending, then newest first).
- */
-export function buildBestGlobalIndex() {
-  const allPosts = collectAllPosts();
+export function buildGlobalIndexFromState(posts) {
+  posts = posts || collectAllPosts();
+  return buildIndex([...posts].sort(byNewest));
+}
 
-  // Preload scores to avoid per-comparison DB queries
-  const scores = new Map();
-  for (const post of allPosts) {
-    scores.set(post.submissionRef, getVotesForSubmission(post.submissionRef)?.score ?? 0);
-  }
+export function buildBestGlobalIndex(posts) {
+  posts = posts || collectAllPosts();
+  return buildIndex(rankByBest(posts));
+}
 
-  allPosts.sort((a, b) => {
-    const diff = scores.get(b.submissionRef) - scores.get(a.submissionRef);
-    return diff !== 0 ? diff : byNewest(a, b);
-  });
+export function buildHotGlobalIndex(posts, nowMs = Date.now()) {
+  posts = posts || collectAllPosts();
+  return buildIndex(rankByHot(posts, nowMs));
+}
 
-  return buildGlobalIndex({
-    curator: config.curatorAddress,
-    entries: toGlobalEntries(allPosts),
-  });
+export function buildRisingGlobalIndex(posts, nowMs = Date.now()) {
+  posts = posts || collectAllPosts();
+  return buildIndex(rankByRising(posts, nowMs));
+}
+
+export function buildControversialGlobalIndex(posts) {
+  posts = posts || collectAllPosts();
+  return buildIndex(rankByControversial(posts));
 }

@@ -42,6 +42,7 @@ export function resetDb() {
     DELETE FROM republish_boards;
     DELETE FROM published_profile_keys;
     DELETE FROM feeds;
+    DELETE FROM vote_events;
     DELETE FROM votes;
     DELETE FROM submissions;
     DELETE FROM boards;

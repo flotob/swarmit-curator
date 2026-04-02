@@ -4,12 +4,12 @@
 
 import { getDb } from '../sqlite.js';
 
-export function addSubmission(submissionRef, { boardId, kind, contentRef = '', parentSubmissionId, rootSubmissionId, author = '', blockNumber = 0, logIndex = 0 }) {
+export function addSubmission(submissionRef, { boardId, kind, contentRef = '', parentSubmissionId, rootSubmissionId, author = '', blockNumber = 0, logIndex = 0, announcedAtMs }) {
   getDb().prepare(`
     INSERT OR IGNORE INTO submissions
-      (submission_ref, board_slug, kind, content_ref, parent_submission_ref, root_submission_ref, author, block_number, log_index)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(submissionRef, boardId, kind, contentRef, parentSubmissionId || null, rootSubmissionId || null, author, blockNumber, logIndex);
+      (submission_ref, board_slug, kind, content_ref, parent_submission_ref, root_submission_ref, author, block_number, log_index, announced_at_ms)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(submissionRef, boardId, kind, contentRef, parentSubmissionId || null, rootSubmissionId || null, author, blockNumber, logIndex, announcedAtMs ?? null);
 }
 
 export function hasSubmission(submissionRef) {
@@ -28,6 +28,7 @@ function rowToEntry(row) {
     author: row.author,
     blockNumber: row.block_number,
     logIndex: row.log_index,
+    announcedAtMs: row.announced_at_ms,
   };
 }
 

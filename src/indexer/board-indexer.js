@@ -1,38 +1,24 @@
 /**
- * Board indexer — builds boardIndex per board, sorted by announcement order (newest first).
+ * Board indexer — builds boardIndex per board in various sort orders.
  */
 
 import { buildBoardIndex } from '../protocol/objects.js';
 import { hexToBzz } from '../protocol/references.js';
-import { getRootSubmissions, getFeed, getVotesForSubmission } from './state.js';
+import { getRootSubmissions, getFeed } from './state.js';
+import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';
-
-const byNewest = (a, b) => {
-  if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
-  return b.logIndex - a.logIndex;
-};
 
 function buildEntry(post) {
   const entry = {
     submissionId: post.submissionRef,
     submissionRef: post.submissionRef,
   };
-  const threadFeedName = `thread-${post.submissionRef}`;
-  const threadFeed = getFeed(threadFeedName);
-  if (threadFeed) {
-    entry.threadIndexFeed = hexToBzz(threadFeed);
-  }
+  const threadFeed = getFeed(`thread-${post.submissionRef}`);
+  if (threadFeed) entry.threadIndexFeed = hexToBzz(threadFeed);
   return entry;
 }
 
-/**
- * Build a boardIndex for a board (chronological, newest first).
- */
-export function buildBoardIndexForBoard(boardSlug) {
-  const posts = getRootSubmissions(boardSlug);
-
-  posts.sort(byNewest);
-
+function buildIndex(boardSlug, posts) {
   return buildBoardIndex({
     boardId: boardSlug,
     curator: config.curatorAddress,
@@ -41,25 +27,34 @@ export function buildBoardIndexForBoard(boardSlug) {
 }
 
 /**
- * Build a "best" boardIndex for a board (score descending, then newest first).
+ * Fetch posts once for a board. Callers should pass this to all builders
+ * to avoid redundant DB queries.
  */
-export function buildBestBoardIndex(boardSlug) {
-  const posts = getRootSubmissions(boardSlug);
+export function getPostsForBoard(boardSlug) {
+  return getRootSubmissions(boardSlug);
+}
 
-  // Preload scores to avoid per-comparison DB queries
-  const scores = new Map();
-  for (const post of posts) {
-    scores.set(post.submissionRef, getVotesForSubmission(post.submissionRef)?.score ?? 0);
-  }
+export function buildBoardIndexForBoard(boardSlug, posts) {
+  posts = posts || getPostsForBoard(boardSlug);
+  return buildIndex(boardSlug, [...posts].sort(byNewest));
+}
 
-  posts.sort((a, b) => {
-    const diff = scores.get(b.submissionRef) - scores.get(a.submissionRef);
-    return diff !== 0 ? diff : byNewest(a, b);
-  });
+export function buildBestBoardIndex(boardSlug, posts) {
+  posts = posts || getPostsForBoard(boardSlug);
+  return buildIndex(boardSlug, rankByBest(posts));
+}
 
-  return buildBoardIndex({
-    boardId: boardSlug,
-    curator: config.curatorAddress,
-    entries: posts.map(buildEntry),
-  });
+export function buildHotBoardIndex(boardSlug, posts, nowMs = Date.now()) {
+  posts = posts || getPostsForBoard(boardSlug);
+  return buildIndex(boardSlug, rankByHot(posts, nowMs));
+}
+
+export function buildRisingBoardIndex(boardSlug, posts, nowMs = Date.now()) {
+  posts = posts || getPostsForBoard(boardSlug);
+  return buildIndex(boardSlug, rankByRising(posts, nowMs));
+}
+
+export function buildControversialBoardIndex(boardSlug, posts) {
+  posts = posts || getPostsForBoard(boardSlug);
+  return buildIndex(boardSlug, rankByControversial(posts));
 }

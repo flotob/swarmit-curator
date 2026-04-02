@@ -1,6 +1,7 @@
 /**
- * Schema creation — all 8 tables + indexes.
+ * Schema creation + additive migrations.
  * Idempotent: uses IF NOT EXISTS throughout.
+ * DB is a rebuildable cache — if migration gets messy, rebuild from CONTRACT_DEPLOY_BLOCK.
  */
 
 const SCHEMA = `
@@ -25,7 +26,8 @@ const SCHEMA = `
     root_submission_ref   TEXT,
     author                TEXT NOT NULL,
     block_number          INTEGER NOT NULL,
-    log_index             INTEGER NOT NULL
+    log_index             INTEGER NOT NULL,
+    announced_at_ms       INTEGER
   );
 
   CREATE INDEX IF NOT EXISTS idx_submissions_board ON submissions (
@@ -44,6 +46,21 @@ const SCHEMA = `
     updated_at_block     INTEGER NOT NULL,
     updated_at_log_index INTEGER NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS vote_events (
+    submission_ref       TEXT NOT NULL,
+    voter                TEXT NOT NULL,
+    direction            INTEGER NOT NULL,
+    previous_direction   INTEGER NOT NULL,
+    delta                INTEGER NOT NULL,
+    block_number         INTEGER NOT NULL,
+    log_index            INTEGER NOT NULL,
+    block_timestamp_ms   INTEGER NOT NULL,
+    UNIQUE(submission_ref, voter, block_number, log_index)
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_vote_events_submission_time
+    ON vote_events (submission_ref, block_timestamp_ms DESC);
 
   CREATE TABLE IF NOT EXISTS feeds (
     feed_name    TEXT PRIMARY KEY,

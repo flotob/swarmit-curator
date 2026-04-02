@@ -43,3 +43,20 @@ export function getVotesForSubmission(submissionRef) {
     updatedAtLogIndex: row.updated_at_log_index,
   };
 }
+
+/**
+ * Batch query: get vote totals for multiple submissions.
+ * @param {string[]} submissionRefs
+ * @returns {Map<string, { upvotes, downvotes, score }>}
+ */
+export function getVotesBatch(submissionRefs) {
+  if (submissionRefs.length === 0) return new Map();
+  const db = getDb();
+  const placeholders = submissionRefs.map(() => '?').join(', ');
+  const rows = db.prepare(`SELECT * FROM votes WHERE submission_ref IN (${placeholders})`).all(...submissionRefs);
+  const result = new Map();
+  for (const row of rows) {
+    result.set(row.submission_ref, { upvotes: row.upvotes, downvotes: row.downvotes, score: row.score });
+  }
+  return result;
+}

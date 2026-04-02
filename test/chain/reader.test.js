@@ -57,6 +57,7 @@ mock.module('ethers', {
     JsonRpcProvider: class MockProvider {
       async getBlockNumber() { return mockGetBlockNumber(); }
       async getLogs(filter) { return mockGetLogs(filter); }
+      async getBlock(blockNumber) { return { timestamp: Math.floor(blockNumber * 5 + 1700000000) }; }
     },
   },
 });

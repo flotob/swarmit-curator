@@ -16,51 +16,66 @@ const iface = new Interface(ABI);
 const provider = new JsonRpcProvider(config.rpcUrl);
 const wallet = new Wallet(config.curatorPrivateKey, provider);
 
+const VIEW_NAMES = ['best', 'hot', 'rising', 'controversial'];
+
 /**
  * Check if the curator profile needs to be re-published.
- * Returns true if there are boards with existing feeds that aren't in the published profile yet.
- * Boards without feeds (no submissions yet) are skipped — no point publishing a profile
- * for a board that has no data, and doing so would cause a runaway republish loop.
  */
 export function needsProfileUpdate() {
   const published = getPublishedKeys();
-  if (getFeedBzzUrl('best-global') && !published.has('view:best:global')) return true;
+
+  for (const view of VIEW_NAMES) {
+    if (getFeedBzzUrl(`${view}-global`) && !published.has(`view:${view}:global`)) return true;
+  }
+
   for (const { slug } of getAllBoards()) {
     if (!published.has(`board:${slug}`) && getFeedBzzUrl(`board-${slug}`)) return true;
-    if (getFeedBzzUrl(`best-board-${slug}`) && !published.has(`view:best:board:${slug}`)) return true;
+    for (const view of VIEW_NAMES) {
+      if (getFeedBzzUrl(`${view}-board-${slug}`) && !published.has(`view:${view}:board:${slug}`)) return true;
+    }
   }
+
   return false;
 }
 
 /**
  * Build, validate, publish curatorProfile, and emit CuratorDeclared on-chain.
+ * Default feed = hot. Named views expose all 5 sort orders.
  * @returns {Promise<string>} The published curatorProfile bzz:// ref
  */
 export async function publishAndDeclare() {
-  // Build boardFeeds map: slug → feed manifest bzz:// URL
+  // Board feeds: default = hot, fallback to chronological
   const boardFeeds = {};
   for (const { slug } of getAllBoards()) {
-    const feedUrl = getFeedBzzUrl(`board-${slug}`);
-    if (feedUrl) boardFeeds[slug] = feedUrl;
+    const hotUrl = getFeedBzzUrl(`hot-board-${slug}`);
+    const defaultUrl = hotUrl || getFeedBzzUrl(`board-${slug}`);
+    if (defaultUrl) boardFeeds[slug] = defaultUrl;
   }
 
-  const globalFeedUrl = getFeedBzzUrl('global');
-  if (!globalFeedUrl) {
-    throw new Error('Cannot publish curatorProfile: global feed not yet created');
+  // Global feed: default = hot, fallback to chronological
+  const hotGlobalUrl = getFeedBzzUrl('hot-global');
+  const chronologicalGlobalUrl = getFeedBzzUrl('global');
+  const globalIndexFeed = hotGlobalUrl || chronologicalGlobalUrl;
+  if (!globalIndexFeed) {
+    throw new Error('Cannot publish curatorProfile: no global feed yet created');
   }
 
-  // Build named-view feed maps
+  // Named views — all 5 sort orders
   const globalViewFeeds = {};
-  globalViewFeeds.new = globalFeedUrl; // alias: new = default chronological
-  const bestGlobalUrl = getFeedBzzUrl('best-global');
-  if (bestGlobalUrl) globalViewFeeds.best = bestGlobalUrl;
+  globalViewFeeds.new = chronologicalGlobalUrl;
+  for (const view of VIEW_NAMES) {
+    const url = getFeedBzzUrl(`${view}-global`);
+    if (url) globalViewFeeds[view] = url;
+  }
 
   const boardViewFeeds = {};
   for (const slug of Object.keys(boardFeeds)) {
     const views = {};
-    views.new = boardFeeds[slug]; // alias: new = default chronological
-    const bestBoardUrl = getFeedBzzUrl(`best-board-${slug}`);
-    if (bestBoardUrl) views.best = bestBoardUrl;
+    views.new = getFeedBzzUrl(`board-${slug}`);
+    for (const view of VIEW_NAMES) {
+      const url = getFeedBzzUrl(`${view}-board-${slug}`);
+      if (url) views[view] = url;
+    }
     boardViewFeeds[slug] = views;
   }
 
@@ -68,7 +83,7 @@ export async function publishAndDeclare() {
     curator: config.curatorAddress,
     name: config.curatorName,
     description: config.curatorDescription,
-    globalIndexFeed: globalFeedUrl,
+    globalIndexFeed,
     boardFeeds,
     globalViewFeeds,
     boardViewFeeds,
@@ -92,11 +107,13 @@ export async function publishAndDeclare() {
   const receipt = await tx.wait();
   console.log(`[Profile] CuratorDeclared tx: ${receipt.hash} (block ${receipt.blockNumber})`);
 
-  // Track boards + named-view markers that appear in this profile
+  // Track boards + all named-view markers that appear in this profile
   const publishedKeys = Object.keys(boardFeeds).map((slug) => `board:${slug}`);
-  if (globalViewFeeds.best) publishedKeys.push('view:best:global');
-  for (const slug of Object.keys(boardViewFeeds)) {
-    if (boardViewFeeds[slug].best) publishedKeys.push(`view:best:board:${slug}`);
+  for (const view of VIEW_NAMES) {
+    if (globalViewFeeds[view]) publishedKeys.push(`view:${view}:global`);
+    for (const slug of Object.keys(boardViewFeeds)) {
+      if (boardViewFeeds[slug][view]) publishedKeys.push(`view:${view}:board:${slug}`);
+    }
   }
   setPublishedKeys(publishedKeys);
 

@@ -6,6 +6,7 @@
 export { initDb, closeDb, resetDb, inTransaction } from '../db/sqlite.js';
 
 export {
+  getMeta, setMeta,
   getLastProcessedBlock, setLastProcessedBlock,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
@@ -16,7 +17,10 @@ export { updateBoardRef as updateBoardMetadata } from '../db/repos/boards.js';
 
 export { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../db/repos/submissions.js';
 
-export { applyVoteEvent, getVotesForSubmission } from '../db/repos/votes.js';
+export { applyVoteEvent, getVotesForSubmission, getVotesBatch } from '../db/repos/votes.js';
+
+
+export { insertVoteEvent, getRecentDelta, getRecentDeltasBatch } from '../db/repos/vote-events.js';
 
 export { getFeed, setFeed } from '../db/repos/feeds.js';
 

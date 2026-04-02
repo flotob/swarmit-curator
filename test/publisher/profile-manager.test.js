@@ -111,7 +111,7 @@ describe('publishAndDeclare', () => {
 
     await assert.rejects(
       () => publishAndDeclare(),
-      /global feed not yet created/,
+      /no global feed/,
     );
 
     assert.equal(mockPublishJSON.mock.callCount(), 0);

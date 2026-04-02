@@ -8,20 +8,20 @@ import { fetchObject, clearCache } from '../swarm/client.js';
 import { hexToBzz } from '../protocol/references.js';
 import { validateIngestedSubmission, validateIngestedContent, validateReplyConsistency } from './validator.js';
 import {
-  getLastProcessedBlock, setLastProcessedBlock,
+  getLastProcessedBlock, setLastProcessedBlock, getMeta, setMeta,
   inTransaction,
   getAllBoards, addBoard, getKnownBoardSlugs, updateBoardMetadata,
   hasSubmission, addSubmission,
-  getRootSubmissions,
   getRetrySubmissions, setRetrySubmissions,
-  applyVoteEvent,
+  applyVoteEvent, insertVoteEvent,
   getRepublishBoards, setRepublishBoards, addRepublishBoard,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
 } from './state.js';
-import { buildBoardIndexForBoard, buildBestBoardIndex } from './board-indexer.js';
+import { getPostsForBoard, buildBoardIndexForBoard, buildBestBoardIndex, buildHotBoardIndex, buildRisingBoardIndex, buildControversialBoardIndex } from './board-indexer.js';
 import { buildThreadIndexForRoot } from './thread-indexer.js';
-import { buildGlobalIndexFromState, buildBestGlobalIndex } from './global-indexer.js';
+import { collectAllPosts, buildGlobalIndexFromState, buildBestGlobalIndex, buildHotGlobalIndex, buildRisingGlobalIndex, buildControversialGlobalIndex } from './global-indexer.js';
+import config from '../config.js';
 import { publishAndUpdateFeed } from '../publisher/feed-manager.js';
 import { needsProfileUpdate, publishAndDeclare } from '../publisher/profile-manager.js';
 
@@ -108,6 +108,7 @@ export async function processEvents(fromBlock, toBlock) {
         author: sub.author,
         blockNumber: sub.blockNumber,
         logIndex: sub.logIndex,
+        announcedAtMs: sub.blockTimestampMs || null,
       });
 
       batchKnownRefs.add(bzzRef);
@@ -161,6 +162,7 @@ export async function processEvents(fromBlock, toBlock) {
         const slug = boardsByBytes32.get(vote.boardId);
         if (slug) changedBoards.add(slug);
       }
+      insertVoteEvent(vote);
     }
   });
 
@@ -179,7 +181,6 @@ export async function processEvents(fromBlock, toBlock) {
 }
 
 export async function publishIndexes(changedBoards, changedThreads) {
-  // Include boards pending republish
   const republishBoards = getRepublishBoards();
   for (const slug of republishBoards) {
     changedBoards.add(slug);
@@ -188,55 +189,117 @@ export async function publishIndexes(changedBoards, changedThreads) {
   const failedBoards = new Set();
 
   for (const boardSlug of changedBoards) {
+    // Fetch posts once for all views of this board
+    const posts = getPostsForBoard(boardSlug);
+
+    // Publish thread feeds FIRST so threadIndexFeed is available for boardIndex
     try {
-      // Publish thread feeds FIRST so threadIndexFeed is available for boardIndex
-      const roots = getRootSubmissions(boardSlug);
-      for (const root of roots) {
+      for (const root of posts) {
         if (changedThreads.has(root.submissionRef) || republishBoards.has(boardSlug)) {
           const threadIndex = buildThreadIndexForRoot(root);
-          const threadFeedName = `thread-${root.submissionRef}`;
-          await publishAndUpdateFeed(threadFeedName, threadIndex, `threadIndex for ${root.submissionRef.slice(0, 20)}...`);
+          await publishAndUpdateFeed(`thread-${root.submissionRef}`, threadIndex, `threadIndex for ${root.submissionRef.slice(0, 20)}...`);
         }
       }
 
-      const boardIndex = buildBoardIndexForBoard(boardSlug);
-      await publishAndUpdateFeed(`board-${boardSlug}`, boardIndex, `boardIndex for r/${boardSlug}`);
+      await publishAndUpdateFeed(`board-${boardSlug}`, buildBoardIndexForBoard(boardSlug, posts), `boardIndex for r/${boardSlug}`);
     } catch (err) {
       console.error(`[Publish] Failed default feed for r/${boardSlug}: ${err.message}`);
       failedBoards.add(boardSlug);
+      continue; // skip ranked feeds if Swarm is down for this board
     }
 
-    try {
-      const bestBoardIndex = buildBestBoardIndex(boardSlug);
-      await publishAndUpdateFeed(`best-board-${boardSlug}`, bestBoardIndex, `best boardIndex for r/${boardSlug}`);
-    } catch (err) {
-      console.error(`[Publish] Failed best feed for r/${boardSlug}: ${err.message}`);
-      failedBoards.add(boardSlug);
+    // All ranked board feeds (reuse fetched posts)
+    for (const [prefix, build] of [
+      ['best-board', () => buildBestBoardIndex(boardSlug, posts)],
+      ['hot-board', () => buildHotBoardIndex(boardSlug, posts)],
+      ['rising-board', () => buildRisingBoardIndex(boardSlug, posts)],
+      ['controversial-board', () => buildControversialBoardIndex(boardSlug, posts)],
+    ]) {
+      try {
+        await publishAndUpdateFeed(`${prefix}-${boardSlug}`, build(), `${prefix} for r/${boardSlug}`);
+      } catch (err) {
+        console.error(`[Publish] Failed ${prefix} feed for r/${boardSlug}: ${err.message}`);
+        failedBoards.add(boardSlug);
+      }
     }
   }
 
   setRepublishBoards(failedBoards);
 }
 
+/**
+ * Publish only ranked feeds for all boards + global. Does NOT republish
+ * chronological (new) or thread feeds. Used by timed ranked refresh.
+ */
+export async function publishRankedRefresh() {
+  let anyFailed = false;
+
+  for (const { slug } of getAllBoards()) {
+    const posts = getPostsForBoard(slug);
+    if (posts.length === 0) continue;
+
+    for (const [prefix, build] of [
+      ['best-board', () => buildBestBoardIndex(slug, posts)],
+      ['hot-board', () => buildHotBoardIndex(slug, posts)],
+      ['rising-board', () => buildRisingBoardIndex(slug, posts)],
+      ['controversial-board', () => buildControversialBoardIndex(slug, posts)],
+    ]) {
+      try {
+        await publishAndUpdateFeed(`${prefix}-${slug}`, build(), `${prefix} refresh for r/${slug}`);
+      } catch (err) {
+        console.error(`[Ranked] Failed ${prefix} refresh for r/${slug}: ${err.message}`);
+        anyFailed = true;
+      }
+    }
+  }
+
+  const allPosts = collectAllPosts();
+  for (const [name, build] of [
+    ['best-global', () => buildBestGlobalIndex(allPosts)],
+    ['hot-global', () => buildHotGlobalIndex(allPosts)],
+    ['rising-global', () => buildRisingGlobalIndex(allPosts)],
+    ['controversial-global', () => buildControversialGlobalIndex(allPosts)],
+  ]) {
+    try {
+      await publishAndUpdateFeed(name, build(), `${name} refresh`);
+    } catch (err) {
+      console.error(`[Ranked] Failed ${name} refresh: ${err.message}`);
+      anyFailed = true;
+    }
+  }
+
+  // Only update timestamp if all feeds succeeded — retry sooner on failure
+  if (!anyFailed) {
+    setMeta('last_ranked_refresh_at', String(Date.now()));
+  }
+}
+
 export async function publishGlobalAndProfile() {
-  // Global index
   if (getRepublishGlobal()) {
     let globalFailed = false;
+    const allPosts = collectAllPosts();
 
+    // Chronological (new) global feed
     try {
-      const globalIndex = buildGlobalIndexFromState();
-      await publishAndUpdateFeed('global', globalIndex, 'globalIndex');
+      await publishAndUpdateFeed('global', buildGlobalIndexFromState(allPosts), 'globalIndex');
     } catch (err) {
       console.error(`[Publish] Failed for globalIndex: ${err.message}`);
       globalFailed = true;
     }
 
-    try {
-      const bestGlobalIndex = buildBestGlobalIndex();
-      await publishAndUpdateFeed('best-global', bestGlobalIndex, 'best globalIndex');
-    } catch (err) {
-      console.error(`[Publish] Failed for best globalIndex: ${err.message}`);
-      globalFailed = true;
+    // All ranked global feeds (reuse collected posts)
+    for (const [name, build] of [
+      ['best-global', () => buildBestGlobalIndex(allPosts)],
+      ['hot-global', () => buildHotGlobalIndex(allPosts)],
+      ['rising-global', () => buildRisingGlobalIndex(allPosts)],
+      ['controversial-global', () => buildControversialGlobalIndex(allPosts)],
+    ]) {
+      try {
+        await publishAndUpdateFeed(name, build(), name);
+      } catch (err) {
+        console.error(`[Publish] Failed for ${name}: ${err.message}`);
+        globalFailed = true;
+      }
     }
 
     setRepublishGlobal(globalFailed);
@@ -305,6 +368,16 @@ export async function pollOnce() {
 
   // Global + profile — always checked independently of board changes
   await publishGlobalAndProfile();
+
+  // Timed ranked refresh — hot/rising change with time even without new events
+  const rankedWorkHappened = changedBoards.size > 0;
+  if (!rankedWorkHappened) {
+    const lastRefresh = parseInt(getMeta('last_ranked_refresh_at', '0'), 10);
+    if (Date.now() - lastRefresh >= config.rankedRefreshInterval) {
+      console.log('[Curator] Ranked refresh interval elapsed, republishing ranked feeds');
+      await publishRankedRefresh();
+    }
+  }
 
   clearCache();
 

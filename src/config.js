@@ -39,6 +39,9 @@ const config = {
 
   // State (SQLite)
   stateDb: process.env.STATE_DB || './state.db',
+
+  // Ranked views
+  rankedRefreshInterval: parseInt(process.env.RANKED_REFRESH_INTERVAL || '15', 10) * 60 * 1000, // ms
 };
 
 // Derive curator address from private key
