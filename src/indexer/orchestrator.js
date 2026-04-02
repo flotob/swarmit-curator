@@ -8,11 +8,10 @@ import { fetchObject, clearCache } from '../swarm/client.js';
 import { hexToBzz } from '../protocol/references.js';
 import { validateIngestedSubmission, validateIngestedContent, validateReplyConsistency } from './validator.js';
 import {
-  saveState,
   getLastProcessedBlock, setLastProcessedBlock,
   inTransaction,
-  getBoards, addBoard, getKnownBoardSlugs, updateBoardMetadata,
-  getSubmissions, addSubmission,
+  getAllBoards, addBoard, getKnownBoardSlugs, updateBoardMetadata,
+  hasSubmission, addSubmission,
   getRootSubmissions,
   getRetrySubmissions, setRetrySubmissions,
   applyVoteEvent,
@@ -41,29 +40,25 @@ export async function processEvents(fromBlock, toBlock) {
   const changedBoards = new Set();
   const changedThreads = new Set();
 
-  // 1. Process board registrations
-  for (const board of events.boards) {
-    addBoard(board.slug, {
-      boardId: board.boardId,
-      slug: board.slug,
-      boardRef: board.boardRef,
-      governance: board.governance,
-    });
-    console.log(`[Ingest] Board registered: r/${board.slug}`);
-  }
+  // ========================================
+  // Phase 1: Fetch + validate (async, no DB writes)
+  // ========================================
 
-  // 2. Process board metadata updates
-  for (const update of events.metadataUpdates) {
-    updateBoardMetadata(update.boardId, update.boardRef);
-    console.log(`[Ingest] Board metadata updated: boardId=${update.boardId}`);
-  }
-
-  // 3. Process submissions (new events + retry queue)
   const retryQueue = getRetrySubmissions();
   const toProcess = [...events.submissions, ...retryQueue];
-  const stillPending = [];
 
   const knownBoardSlugs = getKnownBoardSlugs();
+  // Include boards from this batch so submissions targeting a newly-registered
+  // board in the same block range pass validation.
+  for (const board of events.boards) knownBoardSlugs.add(board.slug);
+
+  // Track refs known to exist: DB state + accepted refs from this batch.
+  // This lets replies whose parent is in the same batch pass consistency checks.
+  const batchKnownRefs = new Set();
+  const isKnown = (ref) => hasSubmission(ref) || batchKnownRefs.has(ref);
+
+  const validatedSubmissions = [];
+  const stillPending = [];
 
   for (const sub of toProcess) {
     const submissionRef = sub.submissionRef;
@@ -74,12 +69,11 @@ export async function processEvents(fromBlock, toBlock) {
       continue;
     }
 
-    if (getSubmissions().has(bzzRef)) continue;
+    if (isKnown(bzzRef)) continue;
 
     try {
       const submission = await fetchObject(submissionRef);
 
-      // Validate submission — malformed objects are permanently dropped
       const subResult = validateIngestedSubmission(submission, knownBoardSlugs);
       if (!subResult.valid) {
         console.warn(`[Ingest] Invalid submission ${bzzRef}: ${subResult.errors.join(', ')}`);
@@ -94,9 +88,8 @@ export async function processEvents(fromBlock, toBlock) {
         continue;
       }
 
-      // For replies: check parent/root — if missing, retry later (parent may be pending)
       if (submission.kind === 'reply') {
-        const replyResult = validateReplyConsistency(submission, getSubmissions());
+        const replyResult = validateReplyConsistency(submission, isKnown);
         if (!replyResult.valid) {
           console.warn(`[Ingest] Reply ${bzzRef} parent/root not yet available, will retry`);
           stillPending.push(sub);
@@ -105,7 +98,8 @@ export async function processEvents(fromBlock, toBlock) {
       }
 
       const rootRef = submission.rootSubmissionId || bzzRef;
-      addSubmission(bzzRef, {
+      validatedSubmissions.push({
+        bzzRef,
         boardId: submission.boardId,
         kind: submission.kind,
         contentRef: submission.contentRef,
@@ -116,25 +110,50 @@ export async function processEvents(fromBlock, toBlock) {
         logIndex: sub.logIndex,
       });
 
+      batchKnownRefs.add(bzzRef);
       changedBoards.add(submission.boardId);
       changedThreads.add(rootRef);
       console.log(`[Ingest] ${submission.kind}: ${bzzRef} in r/${submission.boardId}`);
 
     } catch (err) {
-      // Transient fetch error — retry next loop
       console.warn(`[Ingest] Transient failure for ${bzzRef}, will retry: ${err.message}`);
       stillPending.push(sub);
     }
   }
 
-  setRetrySubmissions(stillPending);
-
-  // 4. Process vote events — mark affected boards dirty for best-view republishing
+  // Resolve board slugs for vote events (needs current DB state, read-only)
+  const boardsByBytes32 = new Map();
   if (events.votes.length > 0) {
-    const boardsByBytes32 = new Map();
-    for (const [slug, board] of getBoards()) {
-      boardsByBytes32.set(board.boardId, slug);
+    for (const board of getAllBoards()) {
+      boardsByBytes32.set(board.boardId, board.slug);
     }
+    for (const board of events.boards) {
+      boardsByBytes32.set(board.boardId, board.slug);
+    }
+  }
+
+  // ========================================
+  // Phase 2: Apply to DB (sync transaction)
+  // ========================================
+
+  inTransaction(() => {
+    for (const board of events.boards) {
+      addBoard(board.slug, {
+        boardId: board.boardId,
+        boardRef: board.boardRef,
+        governance: board.governance,
+      });
+    }
+
+    for (const update of events.metadataUpdates) {
+      updateBoardMetadata(update.boardId, update.boardRef);
+    }
+
+    for (const sub of validatedSubmissions) {
+      addSubmission(sub.bzzRef, sub);
+    }
+
+    setRetrySubmissions(stillPending);
 
     for (const vote of events.votes) {
       const changed = applyVoteEvent(vote);
@@ -142,8 +161,18 @@ export async function processEvents(fromBlock, toBlock) {
         const slug = boardsByBytes32.get(vote.boardId);
         if (slug) changedBoards.add(slug);
       }
-      console.log(`[Ingest] vote: ${vote.direction > 0 ? 'up' : vote.direction < 0 ? 'down' : 'clear'} on ${vote.submissionRef.slice(0, 20)}... by ${vote.voter.slice(0, 10)}...`);
     }
+  });
+
+  // Log after transaction
+  for (const board of events.boards) {
+    console.log(`[Ingest] Board registered: r/${board.slug}`);
+  }
+  for (const update of events.metadataUpdates) {
+    console.log(`[Ingest] Board metadata updated: boardId=${update.boardId}`);
+  }
+  for (const vote of events.votes) {
+    console.log(`[Ingest] vote: ${vote.direction > 0 ? 'up' : vote.direction < 0 ? 'down' : 'clear'} on ${vote.submissionRef.slice(0, 20)}... by ${vote.voter.slice(0, 10)}...`);
   }
 
   return { changedBoards, changedThreads };
@@ -277,7 +306,6 @@ export async function pollOnce() {
   // Global + profile — always checked independently of board changes
   await publishGlobalAndProfile();
 
-  await saveState();
   clearCache();
 
   return { idle: false };

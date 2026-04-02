@@ -62,7 +62,7 @@ const { needsProfileUpdate, publishAndDeclare } = await import('../../src/publis
 const {
   initDb, closeDb, resetDb,
   addBoard, setFeed,
-  getPublishedBoardSlugs, setPublishedBoardSlugs,
+  getPublishedKeys, setPublishedKeys,
 } = await import('../../src/indexer/state.js');
 
 import { before, after } from 'node:test';
@@ -81,7 +81,7 @@ describe('needsProfileUpdate', () => {
   it('all boards already published → false', () => {
     addBoard('general', { boardId: 'general' });
     setFeed('board-general', 'c'.repeat(64));
-    setPublishedBoardSlugs(['board:general']);
+    setPublishedKeys(['board:general']);
     assert.equal(needsProfileUpdate(), false);
   });
 
@@ -89,7 +89,7 @@ describe('needsProfileUpdate', () => {
     addBoard('general', { boardId: 'general' });
     addBoard('tech', { boardId: 'tech' });
     setFeed('board-tech', 'c'.repeat(64));
-    setPublishedBoardSlugs(['board:general']);
+    setPublishedKeys(['board:general']);
     assert.equal(needsProfileUpdate(), true);
   });
 });
@@ -147,7 +147,7 @@ describe('publishAndDeclare', () => {
     assert.equal(tx.to, TEST_CONFIG.contractAddress);
 
     // Verify published profile keys use structured naming
-    const published = getPublishedBoardSlugs();
+    const published = getPublishedKeys();
     assert.ok(published.has('board:general'));
     assert.ok(published.has('board:tech'));
     assert.ok(published.has('view:best:global'));

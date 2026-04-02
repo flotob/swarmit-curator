@@ -294,6 +294,65 @@ describe('processEvents', () => {
     assert.equal(getLastProcessedBlock(), 50); // unchanged
   });
 
+  it('submission targeting a board registered in the same batch succeeds', async () => {
+    // Board 'new-board' is NOT in the DB — it arrives in the same batch as the submission
+    const ref = 'ab'.repeat(32);
+    const submission = makeValidSubmission('new-board');
+    const post = makeValidPost();
+
+    mockFetchEvents.mock.mockImplementation(async () => ({
+      ...emptyEvents,
+      boards: [{ slug: 'new-board', boardId: '0xnew', boardRef: 'ref', governance: '0x0' }],
+      submissions: [makeSubmissionEvent(ref)],
+    }));
+    let n = 0;
+    mockFetchObject.mock.mockImplementation(async () => {
+      n++;
+      return n === 1 ? submission : post;
+    });
+
+    await processEvents(100, 200);
+
+    assert.ok(hasSubmission(`bzz://${ref}`));
+  });
+
+  it('reply whose parent is accepted earlier in the same batch succeeds', async () => {
+    const parentRef = 'ca'.repeat(32);
+    const replyRef = 'cb'.repeat(32);
+    const parentBzz = `bzz://${parentRef}`;
+
+    const parentSubmission = makeValidSubmission('general', 'post');
+    const parentContent = makeValidPost();
+    const replySubmission = makeValidSubmission('general', 'reply', {
+      parentSubmissionId: parentBzz,
+      rootSubmissionId: parentBzz,
+    });
+    const replyContent = makeValidReply();
+
+    // Both arrive as new events in the same batch — parent first
+    mockFetchEvents.mock.mockImplementation(async () => ({
+      ...emptyEvents,
+      submissions: [
+        makeSubmissionEvent(parentRef, { blockNumber: 100, logIndex: 0 }),
+        makeSubmissionEvent(replyRef, { blockNumber: 100, logIndex: 1 }),
+      ],
+    }));
+    let n = 0;
+    mockFetchObject.mock.mockImplementation(async () => {
+      n++;
+      if (n === 1) return parentSubmission;
+      if (n === 2) return parentContent;
+      if (n === 3) return replySubmission;
+      return replyContent;
+    });
+
+    await processEvents(100, 200);
+
+    assert.ok(hasSubmission(parentBzz));
+    assert.ok(hasSubmission(`bzz://${replyRef}`));
+    assert.equal(getRetrySubmissions().length, 0);
+  });
+
   it('processEvents applies VoteSet totals to state', async () => {
     const { getVotesForSubmission } = await import('../../src/indexer/state.js');
     const subRef = `bzz://${'a1'.repeat(32)}`;

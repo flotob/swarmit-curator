@@ -5,8 +5,8 @@ import { VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3 } from '../helpers/fixtures.js';
 import {
   initDb, closeDb, resetDb,
   getLastProcessedBlock, setLastProcessedBlock,
-  addBoard, getAllBoards, getBoards, getKnownBoardSlugs,
-  addSubmission, hasSubmission, getSubmissions, getSubmissionsForBoard,
+  addBoard, getAllBoards, getKnownBoardSlugs,
+  addSubmission, hasSubmission, getSubmissionsForBoard,
   getRootSubmissions, getRepliesForRoot,
   applyVoteEvent, getVotesForSubmission,
   getFeed, setFeed,
@@ -14,8 +14,7 @@ import {
   getRepublishBoards, setRepublishBoards,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
-  getPublishedBoardSlugs, setPublishedBoardSlugs,
-  loadState, saveState,
+  getPublishedKeys, setPublishedKeys,
 } from '../../src/indexer/state.js';
 
 before(() => initDb(':memory:'));
@@ -37,14 +36,6 @@ describe('DB lifecycle', () => {
     assert.equal(getLastProcessedBlock(), null);
   });
 
-  it('loadState is a no-op stub', async () => {
-    const result = await loadState();
-    assert.equal(result, false);
-  });
-
-  it('saveState is a no-op stub', async () => {
-    await saveState(); // should not throw
-  });
 });
 
 // =============================================
@@ -87,16 +78,6 @@ describe('boards facade', () => {
     assert.equal(boards[0].boardId, '0xabc');
   });
 
-  it('getBoards returns Map for backward compat', () => {
-    addBoard('tech', { boardId: '0x123' });
-    const map = getBoards();
-    assert.ok(map instanceof Map);
-    assert.ok(map.has('tech'));
-    const [slug, board] = [...map.entries()][0];
-    assert.equal(slug, 'tech');
-    assert.equal(board.boardId, '0x123');
-  });
-
   it('getKnownBoardSlugs returns Set', () => {
     addBoard('a', { boardId: '1' });
     addBoard('b', { boardId: '2' });
@@ -116,12 +97,6 @@ describe('submissions facade', () => {
     addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
     assert.equal(hasSubmission(VALID_BZZ), true);
     assert.equal(hasSubmission(VALID_BZZ_2), false);
-  });
-
-  it('getSubmissions().has() backward compat', () => {
-    addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
-    assert.equal(getSubmissions().has(VALID_BZZ), true);
-    assert.equal(getSubmissions().has(VALID_BZZ_2), false);
   });
 
   it('getSubmissionsForBoard filters correctly', () => {
@@ -246,8 +221,8 @@ describe('republish boards', () => {
 
 describe('published board slugs', () => {
   it('set + get round-trip', () => {
-    setPublishedBoardSlugs(['board:tech', 'view:best:global']);
-    const keys = getPublishedBoardSlugs();
+    setPublishedKeys(['board:tech', 'view:best:global']);
+    const keys = getPublishedKeys();
     assert.ok(keys.has('board:tech'));
     assert.ok(keys.has('view:best:global'));
   });

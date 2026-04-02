@@ -50,10 +50,10 @@ export function validateIngestedContent(content, expectedKind) {
 /**
  * Validate reply parent/root consistency against known state.
  * @param {Object} submission - The reply submission
- * @param {Map<string, Object>} knownSubmissions - Map of submissionId → submission
+ * @param {(ref: string) => boolean} isKnown - predicate that returns true if a submission ref exists
  * @returns {{ valid: boolean, errors: string[] }}
  */
-export function validateReplyConsistency(submission, knownSubmissions) {
+export function validateReplyConsistency(submission, isKnown) {
   const errors = [];
 
   if (submission.kind !== 'reply') return { valid: true, errors: [] };
@@ -63,13 +63,13 @@ export function validateReplyConsistency(submission, knownSubmissions) {
 
   if (!parentRef || !isValidBzzRef(parentRef)) {
     errors.push('reply missing valid parentSubmissionId');
-  } else if (!knownSubmissions.has(parentRef)) {
+  } else if (!isKnown(parentRef)) {
     errors.push(`parent submission ${parentRef} not found in state`);
   }
 
   if (!rootRef || !isValidBzzRef(rootRef)) {
     errors.push('reply missing valid rootSubmissionId');
-  } else if (!knownSubmissions.has(rootRef)) {
+  } else if (!isKnown(rootRef)) {
     errors.push(`root submission ${rootRef} not found in state`);
   }
 

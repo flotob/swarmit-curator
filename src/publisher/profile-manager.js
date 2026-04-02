@@ -8,7 +8,7 @@ import config from '../config.js';
 import { publishJSON } from '../swarm/client.js';
 import { hexToBzz } from '../protocol/references.js';
 import { buildCuratorProfile, validate } from '../protocol/objects.js';
-import { getBoards, getFeed, getPublishedBoardSlugs, setPublishedBoardSlugs } from '../indexer/state.js';
+import { getAllBoards, getPublishedKeys, setPublishedKeys } from '../indexer/state.js';
 import { getFeedBzzUrl } from './feed-manager.js';
 
 const ABI = ['function declareCurator(string curatorProfileRef)'];
@@ -23,9 +23,9 @@ const wallet = new Wallet(config.curatorPrivateKey, provider);
  * for a board that has no data, and doing so would cause a runaway republish loop.
  */
 export function needsProfileUpdate() {
-  const published = getPublishedBoardSlugs();
+  const published = getPublishedKeys();
   if (getFeedBzzUrl('best-global') && !published.has('view:best:global')) return true;
-  for (const [slug] of getBoards()) {
+  for (const { slug } of getAllBoards()) {
     if (!published.has(`board:${slug}`) && getFeedBzzUrl(`board-${slug}`)) return true;
     if (getFeedBzzUrl(`best-board-${slug}`) && !published.has(`view:best:board:${slug}`)) return true;
   }
@@ -39,7 +39,7 @@ export function needsProfileUpdate() {
 export async function publishAndDeclare() {
   // Build boardFeeds map: slug → feed manifest bzz:// URL
   const boardFeeds = {};
-  for (const [slug] of getBoards()) {
+  for (const { slug } of getAllBoards()) {
     const feedUrl = getFeedBzzUrl(`board-${slug}`);
     if (feedUrl) boardFeeds[slug] = feedUrl;
   }
@@ -98,7 +98,7 @@ export async function publishAndDeclare() {
   for (const slug of Object.keys(boardViewFeeds)) {
     if (boardViewFeeds[slug].best) publishedKeys.push(`view:best:board:${slug}`);
   }
-  setPublishedBoardSlugs(publishedKeys);
+  setPublishedKeys(publishedKeys);
 
   return bzzUrl;
 }

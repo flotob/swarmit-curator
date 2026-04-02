@@ -126,27 +126,25 @@ describe('validateIngestedContent', () => {
 // =============================================
 
 describe('validateReplyConsistency', () => {
-  const knownSubmissions = new Map([
-    [VALID_BZZ_2, { kind: 'post' }],
-    [VALID_BZZ_3, { kind: 'post' }],
-  ]);
+  const knownRefs = new Set([VALID_BZZ_2, VALID_BZZ_3]);
+  const isKnown = (ref) => knownRefs.has(ref);
 
   it('reply with known parent + root passes', () => {
-    const result = validateReplyConsistency(validSubmissionReply(), knownSubmissions);
+    const result = validateReplyConsistency(validSubmissionReply(), isKnown);
     assert.equal(result.valid, true);
     assert.deepEqual(result.errors, []);
   });
 
   it('reply with unknown parent fails', () => {
     const sub = { ...validSubmissionReply(), parentSubmissionId: VALID_BZZ };
-    const result = validateReplyConsistency(sub, knownSubmissions);
+    const result = validateReplyConsistency(sub, isKnown);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('parent')));
   });
 
   it('reply with unknown root fails', () => {
     const sub = { ...validSubmissionReply(), rootSubmissionId: VALID_BZZ };
-    const result = validateReplyConsistency(sub, knownSubmissions);
+    const result = validateReplyConsistency(sub, isKnown);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('root')));
   });
@@ -154,13 +152,13 @@ describe('validateReplyConsistency', () => {
   it('reply with missing parentSubmissionId fails', () => {
     const sub = { ...validSubmissionReply() };
     delete sub.parentSubmissionId;
-    const result = validateReplyConsistency(sub, knownSubmissions);
+    const result = validateReplyConsistency(sub, isKnown);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('parent')));
   });
 
   it('non-reply (kind: post) passes (skipped)', () => {
-    const result = validateReplyConsistency(validSubmissionPost(), knownSubmissions);
+    const result = validateReplyConsistency(validSubmissionPost(), isKnown);
     assert.equal(result.valid, true);
     assert.deepEqual(result.errors, []);
   });

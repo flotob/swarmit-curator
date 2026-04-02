@@ -3,7 +3,7 @@
  */
 
 import { buildGlobalIndex } from '../protocol/objects.js';
-import { getRootSubmissions, getBoards, getVotesForSubmission } from './state.js';
+import { getRootSubmissions, getAllBoards, getVotesForSubmission } from './state.js';
 import config from '../config.js';
 
 const byNewest = (a, b) => {
@@ -13,7 +13,7 @@ const byNewest = (a, b) => {
 
 function collectAllPosts() {
   const allPosts = [];
-  for (const [slug] of getBoards()) {
+  for (const { slug } of getAllBoards()) {
     const posts = getRootSubmissions(slug);
     for (const post of posts) {
       allPosts.push({ ...post, boardId: slug });
