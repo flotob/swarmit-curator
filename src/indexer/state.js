@@ -161,6 +161,11 @@ export function getVotesForSubmission(submissionRef) {
  * Apply a decoded VoteSet event to vote state.
  * Ignores stale events (older block/logIndex than current state).
  */
+/**
+ * Apply a decoded VoteSet event to vote state.
+ * Ignores stale events (older block/logIndex than current state).
+ * @returns {boolean} true if state was actually changed
+ */
 export function applyVoteEvent(voteEvent) {
   const submissionRef = voteEvent.submissionRef;
   const existing = state.votes.get(submissionRef);
@@ -168,7 +173,7 @@ export function applyVoteEvent(voteEvent) {
   if (existing) {
     const existingOrder = existing.updatedAtBlock * 1e6 + existing.updatedAtLogIndex;
     const eventOrder = voteEvent.blockNumber * 1e6 + voteEvent.logIndex;
-    if (eventOrder <= existingOrder) return;
+    if (eventOrder <= existingOrder) return false;
   }
 
   state.votes.set(submissionRef, {
@@ -178,6 +183,7 @@ export function applyVoteEvent(voteEvent) {
     updatedAtBlock: voteEvent.blockNumber,
     updatedAtLogIndex: voteEvent.logIndex,
   });
+  return true;
 }
 
 export function getFeed(feedName) {

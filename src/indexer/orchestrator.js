@@ -19,9 +19,9 @@ import {
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
 } from './state.js';
-import { buildBoardIndexForBoard } from './board-indexer.js';
+import { buildBoardIndexForBoard, buildBestBoardIndex } from './board-indexer.js';
 import { buildThreadIndexForRoot } from './thread-indexer.js';
-import { buildGlobalIndexFromState } from './global-indexer.js';
+import { buildGlobalIndexFromState, buildBestGlobalIndex } from './global-indexer.js';
 import { publishAndUpdateFeed } from '../publisher/feed-manager.js';
 import { needsProfileUpdate, publishAndDeclare } from '../publisher/profile-manager.js';
 
@@ -134,10 +134,21 @@ export async function processEvents(fromBlock, toBlock) {
 
   setRetrySubmissions(stillPending);
 
-  // 4. Process vote events (pure chain state, no Swarm fetch)
-  for (const vote of events.votes) {
-    applyVoteEvent(vote);
-    console.log(`[Ingest] vote: ${vote.direction > 0 ? 'up' : vote.direction < 0 ? 'down' : 'clear'} on ${vote.submissionRef.slice(0, 20)}... by ${vote.voter.slice(0, 10)}...`);
+  // 4. Process vote events — mark affected boards dirty for best-view republishing
+  if (events.votes.length > 0) {
+    const boardsByBytes32 = new Map();
+    for (const [slug, board] of getBoards()) {
+      boardsByBytes32.set(board.boardId, slug);
+    }
+
+    for (const vote of events.votes) {
+      const changed = applyVoteEvent(vote);
+      if (changed) {
+        const slug = boardsByBytes32.get(vote.boardId);
+        if (slug) changedBoards.add(slug);
+      }
+      console.log(`[Ingest] vote: ${vote.direction > 0 ? 'up' : vote.direction < 0 ? 'down' : 'clear'} on ${vote.submissionRef.slice(0, 20)}... by ${vote.voter.slice(0, 10)}...`);
+    }
   }
 
   return { changedBoards, changedThreads };
@@ -167,7 +178,15 @@ export async function publishIndexes(changedBoards, changedThreads) {
       const boardIndex = buildBoardIndexForBoard(boardSlug);
       await publishAndUpdateFeed(`board-${boardSlug}`, boardIndex, `boardIndex for r/${boardSlug}`);
     } catch (err) {
-      console.error(`[Publish] Failed for r/${boardSlug}: ${err.message}`);
+      console.error(`[Publish] Failed default feed for r/${boardSlug}: ${err.message}`);
+      failedBoards.add(boardSlug);
+    }
+
+    try {
+      const bestBoardIndex = buildBestBoardIndex(boardSlug);
+      await publishAndUpdateFeed(`best-board-${boardSlug}`, bestBoardIndex, `best boardIndex for r/${boardSlug}`);
+    } catch (err) {
+      console.error(`[Publish] Failed best feed for r/${boardSlug}: ${err.message}`);
       failedBoards.add(boardSlug);
     }
   }
@@ -178,14 +197,25 @@ export async function publishIndexes(changedBoards, changedThreads) {
 export async function publishGlobalAndProfile() {
   // Global index
   if (getRepublishGlobal()) {
+    let globalFailed = false;
+
     try {
       const globalIndex = buildGlobalIndexFromState();
       await publishAndUpdateFeed('global', globalIndex, 'globalIndex');
-      setRepublishGlobal(false);
     } catch (err) {
       console.error(`[Publish] Failed for globalIndex: ${err.message}`);
-      setRepublishGlobal(true);
+      globalFailed = true;
     }
+
+    try {
+      const bestGlobalIndex = buildBestGlobalIndex();
+      await publishAndUpdateFeed('best-global', bestGlobalIndex, 'best globalIndex');
+    } catch (err) {
+      console.error(`[Publish] Failed for best globalIndex: ${err.message}`);
+      globalFailed = true;
+    }
+
+    setRepublishGlobal(globalFailed);
   }
 
   // Curator profile

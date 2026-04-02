@@ -154,6 +154,36 @@ function validateEntries(entries, requiredFields, label) {
   return errors.length ? errors : null;
 }
 
+function validateOptionalViewFeeds(obj, fieldName, label) {
+  if (!(fieldName in obj)) return null;
+  const map = obj[fieldName];
+  if (!map || typeof map !== 'object' || Array.isArray(map)) {
+    return [`${label} must be an object`];
+  }
+  const errors = [];
+  for (const [key, val] of Object.entries(map)) {
+    if (!isValidBzzRef(val)) {
+      errors.push(`${label}["${key}"] must be a normalized bzz:// reference`);
+    }
+  }
+  return errors.length ? errors : null;
+}
+
+function validateOptionalBoardViewFeeds(obj) {
+  if (!('boardViewFeeds' in obj)) return null;
+  const map = obj.boardViewFeeds;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) {
+    return ['boardViewFeeds must be an object'];
+  }
+  const errors = [];
+  for (const [slug, viewMap] of Object.entries(map)) {
+    const wrapper = { _inner: viewMap };
+    const innerErrors = validateOptionalViewFeeds(wrapper, '_inner', `boardViewFeeds["${slug}"]`);
+    if (innerErrors) errors.push(...innerErrors);
+  }
+  return errors.length ? errors : null;
+}
+
 function collectErrors(...checks) {
   const errors = [];
   for (const check of checks) {
@@ -297,7 +327,7 @@ export function buildGlobalIndex({ curator, entries }) {
 /**
  * Build a curatorProfile object.
  */
-export function buildCuratorProfile({ curator, name, description, globalIndexFeed, policyRef, boardFeeds }) {
+export function buildCuratorProfile({ curator, name, description, globalIndexFeed, policyRef, boardFeeds, globalViewFeeds, boardViewFeeds }) {
   const obj = {
     protocol: TYPES.CURATOR,
     curator,
@@ -307,6 +337,8 @@ export function buildCuratorProfile({ curator, name, description, globalIndexFee
   };
   if (policyRef) obj.policyRef = policyRef;
   if (boardFeeds) obj.boardFeeds = boardFeeds;
+  if (globalViewFeeds) obj.globalViewFeeds = globalViewFeeds;
+  if (boardViewFeeds) obj.boardViewFeeds = boardViewFeeds;
   return obj;
 }
 
@@ -447,6 +479,13 @@ export function validateBoardIndex(obj) {
       { name: 'submissionId', bzz: true },
       { name: 'submissionRef', bzz: true },
     ], 'entries') || []));
+    for (let i = 0; i < obj.entries.length; i++) {
+      const entry = obj.entries[i];
+      if (entry && typeof entry === 'object' && 'threadViewFeeds' in entry) {
+        const tvfErrors = validateOptionalViewFeeds(entry, 'threadViewFeeds', `entries[${i}].threadViewFeeds`);
+        if (tvfErrors) errors.push(...tvfErrors);
+      }
+    }
   }
   return errors;
 }
@@ -510,6 +549,8 @@ export function validateCuratorProfile(obj) {
     requireString(obj, 'name'),
     requireString(obj, 'description'),
     requireBzzRef(obj, 'globalIndexFeed'),
+    validateOptionalViewFeeds(obj, 'globalViewFeeds', 'globalViewFeeds'),
+    validateOptionalBoardViewFeeds(obj),
   );
 }
 

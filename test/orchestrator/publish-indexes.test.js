@@ -74,11 +74,11 @@ describe('publishIndexes', () => {
 
     const calls = mockPublishAndUpdateFeed.mock.calls;
     assert.ok(calls.length >= 2);
-    // First call should be thread feed, second should be board feed
-    const firstFeedName = calls[0].arguments[0];
-    const lastFeedName = calls[calls.length - 1].arguments[0];
-    assert.ok(firstFeedName.startsWith('thread-'), `expected thread feed first, got ${firstFeedName}`);
-    assert.ok(lastFeedName.startsWith('board-'), `expected board feed last, got ${lastFeedName}`);
+    // Thread feeds must come before any board feeds
+    const feedNames = calls.map((c) => c.arguments[0]);
+    const firstBoardIdx = feedNames.findIndex((n) => n.startsWith('board-') || n.startsWith('best-board-'));
+    const lastThreadIdx = feedNames.findLastIndex((n) => n.startsWith('thread-'));
+    assert.ok(lastThreadIdx < firstBoardIdx, `thread feeds must be published before board feeds: ${feedNames.join(', ')}`);
   });
 
   it('republish queue boards are included', async () => {

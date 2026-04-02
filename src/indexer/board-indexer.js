@@ -4,42 +4,60 @@
 
 import { buildBoardIndex } from '../protocol/objects.js';
 import { hexToBzz } from '../protocol/references.js';
-import { getRootSubmissions, getFeed } from './state.js';
+import { getRootSubmissions, getFeed, getVotesForSubmission } from './state.js';
 import config from '../config.js';
 
+const byNewest = (a, b) => {
+  if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
+  return b.logIndex - a.logIndex;
+};
+
+const byBestThenNewest = (a, b) => {
+  const scoreA = getVotesForSubmission(a.submissionRef)?.score ?? 0;
+  const scoreB = getVotesForSubmission(b.submissionRef)?.score ?? 0;
+  if (scoreB !== scoreA) return scoreB - scoreA;
+  return byNewest(a, b);
+};
+
+function buildEntry(post) {
+  const entry = {
+    submissionId: post.submissionRef,
+    submissionRef: post.submissionRef,
+  };
+  const threadFeedName = `thread-${post.submissionRef}`;
+  const threadFeed = getFeed(threadFeedName);
+  if (threadFeed) {
+    entry.threadIndexFeed = hexToBzz(threadFeed);
+  }
+  return entry;
+}
+
 /**
- * Build a boardIndex for a board.
- * @param {string} boardSlug
- * @returns {Object} A valid boardIndex protocol object
+ * Build a boardIndex for a board (chronological, newest first).
  */
 export function buildBoardIndexForBoard(boardSlug) {
   const posts = getRootSubmissions(boardSlug);
 
-  // Sort by announcement order: newest first (highest block, then highest logIndex)
-  posts.sort((a, b) => {
-    if (b.blockNumber !== a.blockNumber) return b.blockNumber - a.blockNumber;
-    return b.logIndex - a.logIndex;
-  });
-
-  const entries = posts.map((post) => {
-    const entry = {
-      submissionId: post.submissionRef,
-      submissionRef: post.submissionRef,
-    };
-
-    // Include threadIndexFeed if we have a thread feed for this post
-    const threadFeedName = `thread-${post.submissionRef}`;
-    const threadFeed = getFeed(threadFeedName);
-    if (threadFeed) {
-      entry.threadIndexFeed = hexToBzz(threadFeed);
-    }
-
-    return entry;
-  });
+  posts.sort(byNewest);
 
   return buildBoardIndex({
     boardId: boardSlug,
     curator: config.curatorAddress,
-    entries,
+    entries: posts.map(buildEntry),
+  });
+}
+
+/**
+ * Build a "best" boardIndex for a board (score descending, then newest first).
+ */
+export function buildBestBoardIndex(boardSlug) {
+  const posts = getRootSubmissions(boardSlug);
+
+  posts.sort(byBestThenNewest);
+
+  return buildBoardIndex({
+    boardId: boardSlug,
+    curator: config.curatorAddress,
+    entries: posts.map(buildEntry),
   });
 }
