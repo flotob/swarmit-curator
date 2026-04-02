@@ -137,6 +137,7 @@ export async function processEvents(fromBlock, toBlock) {
   // 4. Process vote events (pure chain state, no Swarm fetch)
   for (const vote of events.votes) {
     applyVoteEvent(vote);
+    console.log(`[Ingest] vote: ${vote.direction > 0 ? 'up' : vote.direction < 0 ? 'down' : 'clear'} on ${vote.submissionRef.slice(0, 20)}... by ${vote.voter.slice(0, 10)}...`);
   }
 
   return { changedBoards, changedThreads };
