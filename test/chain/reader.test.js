@@ -5,14 +5,15 @@ import assert from 'node:assert/strict';
 // This ensures we exercise the actual ABI fragments and event-signature wiring.
 // If reader.js's ABI drifts from what we encode here, tests fail.
 
-const { Interface: RealInterface, getAddress } = await import('ethers');
+const { Interface: RealInterface, getAddress, keccak256, toUtf8Bytes } = await import('ethers');
 
 // Same ABI as reader.js — kept in sync so topic-hash mismatches catch drift
 const ABI = [
   'event BoardRegistered(bytes32 indexed boardId, string slug, string boardRef, address governance)',
   'event BoardMetadataUpdated(bytes32 indexed boardId, string boardRef)',
-  'event SubmissionAnnounced(bytes32 indexed boardId, bytes32 indexed submissionId, string submissionRef, bytes32 parentSubmissionId, bytes32 rootSubmissionId, address author)',
+  'event SubmissionAnnounced(bytes32 indexed boardId, bytes32 indexed submissionId, bytes32 parentSubmissionId, bytes32 rootSubmissionId, address author)',
   'event CuratorDeclared(address indexed curator, string curatorProfileRef)',
+  'event VoteSet(bytes32 indexed boardId, bytes32 indexed submissionId, address indexed voter, bytes32 rootSubmissionId, int8 direction, int8 previousDirection, uint64 upvotes, uint64 downvotes)',
 ];
 const testIface = new RealInterface(ABI);
 
@@ -22,6 +23,7 @@ const TOPICS = {
   BoardMetadataUpdated: testIface.getEvent('BoardMetadataUpdated').topicHash,
   SubmissionAnnounced: testIface.getEvent('SubmissionAnnounced').topicHash,
   CuratorDeclared: testIface.getEvent('CuratorDeclared').topicHash,
+  VoteSet: testIface.getEvent('VoteSet').topicHash,
 };
 
 // --- Mock config and ethers (real Interface, mock Provider) ---
@@ -48,6 +50,9 @@ mock.module('ethers', {
   namedExports: {
     // Real Interface — topic hashes and parseLog exercise the actual ABI
     Interface: RealInterface,
+    // Real utilities needed by references.js
+    keccak256,
+    toUtf8Bytes,
     // Mock Provider — only network I/O is stubbed
     JsonRpcProvider: class MockProvider {
       async getBlockNumber() { return mockGetBlockNumber(); }
@@ -81,7 +86,7 @@ describe('fetchEvents', () => {
 
   it('empty range (fromBlock > toBlock) returns empty arrays', async () => {
     const result = await fetchEvents(200, 100);
-    assert.deepEqual(result, { boards: [], metadataUpdates: [], submissions: [], curators: [] });
+    assert.deepEqual(result, { boards: [], metadataUpdates: [], submissions: [], curators: [], votes: [] });
   });
 
   it('BoardRegistered decoded correctly', async () => {
@@ -125,11 +130,11 @@ describe('fetchEvents', () => {
     assert.equal(result.metadataUpdates[0].blockNumber, 160);
   });
 
-  it('SubmissionAnnounced with zero parent → null parentSubmissionId', async () => {
+  it('SubmissionAnnounced with zero parent → null parentSubmissionId, submissionRef derived', async () => {
     mockGetLogs = async (filter) => {
       if (filter.topics[0] === TOPICS.SubmissionAnnounced) {
         return [makeLog('SubmissionAnnounced',
-          [BYTES32_A, BYTES32_B, 'cc'.repeat(32), BYTES32_ZERO, BYTES32_B, TEST_ADDR],
+          [BYTES32_A, BYTES32_B, BYTES32_ZERO, BYTES32_B, TEST_ADDR],
           170, 2,
         )];
       }
@@ -139,6 +144,8 @@ describe('fetchEvents', () => {
     const result = await fetchEvents(100, 200);
 
     assert.equal(result.submissions.length, 1);
+    assert.equal(result.submissions[0].submissionRef, `bzz://${'bb'.repeat(32)}`);
+    assert.equal(result.submissions[0].submissionId, BYTES32_B);
     assert.equal(result.submissions[0].parentSubmissionId, null);
     assert.equal(result.submissions[0].rootSubmissionId, BYTES32_B);
     assert.equal(result.submissions[0].author, TEST_ADDR);
@@ -150,7 +157,7 @@ describe('fetchEvents', () => {
     mockGetLogs = async (filter) => {
       if (filter.topics[0] === TOPICS.SubmissionAnnounced) {
         return [makeLog('SubmissionAnnounced',
-          [BYTES32_A, BYTES32_B, 'dd'.repeat(32), BYTES32_A, BYTES32_A, TEST_ADDR],
+          [BYTES32_A, BYTES32_B, BYTES32_A, BYTES32_A, TEST_ADDR],
         )];
       }
       return [];
@@ -159,6 +166,36 @@ describe('fetchEvents', () => {
     const result = await fetchEvents(100, 200);
 
     assert.equal(result.submissions[0].parentSubmissionId, BYTES32_A);
+  });
+
+  it('VoteSet decoded correctly with numeric normalization', async () => {
+    mockGetLogs = async (filter) => {
+      if (filter.topics[0] === TOPICS.VoteSet) {
+        return [makeLog('VoteSet',
+          [BYTES32_A, BYTES32_B, TEST_ADDR, BYTES32_A, 1, 0, 5, 2],
+          200, 7,
+        )];
+      }
+      return [];
+    };
+
+    const result = await fetchEvents(100, 200);
+
+    assert.equal(result.votes.length, 1);
+    assert.equal(result.votes[0].boardId, BYTES32_A);
+    assert.equal(result.votes[0].submissionId, BYTES32_B);
+    assert.equal(result.votes[0].submissionRef, `bzz://${'bb'.repeat(32)}`);
+    assert.equal(result.votes[0].voter, TEST_ADDR);
+    assert.equal(result.votes[0].rootSubmissionId, BYTES32_A);
+    assert.equal(result.votes[0].direction, 1);
+    assert.equal(result.votes[0].previousDirection, 0);
+    assert.equal(result.votes[0].upvotes, 5);
+    assert.equal(result.votes[0].downvotes, 2);
+    assert.equal(result.votes[0].blockNumber, 200);
+    assert.equal(result.votes[0].logIndex, 7);
+    // Verify numeric types (not BigInt)
+    assert.equal(typeof result.votes[0].direction, 'number');
+    assert.equal(typeof result.votes[0].upvotes, 'number');
   });
 
   it('CuratorDeclared decoded correctly', async () => {

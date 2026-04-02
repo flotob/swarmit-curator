@@ -7,7 +7,7 @@ setupTestEnv();
 
 // --- Mock external modules ---
 
-const emptyEvents = { boards: [], metadataUpdates: [], submissions: [], curators: [] };
+const emptyEvents = { boards: [], metadataUpdates: [], submissions: [], curators: [], votes: [] };
 const mockFetchEvents = mock.fn(async () => emptyEvents);
 const mockFetchObject = mock.fn(async () => ({}));
 const mockGetSafeBlockNumber = mock.fn(async () => 100);

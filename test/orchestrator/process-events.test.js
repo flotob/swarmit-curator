@@ -7,7 +7,7 @@ setupTestEnv();
 
 // --- Mock external modules before importing orchestrator ---
 
-const emptyEvents = { boards: [], metadataUpdates: [], submissions: [], curators: [] };
+const emptyEvents = { boards: [], metadataUpdates: [], submissions: [], curators: [], votes: [] };
 const mockFetchEvents = mock.fn(async () => emptyEvents);
 const mockFetchObject = mock.fn(async () => ({}));
 
@@ -289,5 +289,34 @@ describe('processEvents', () => {
     await processEvents(51, 100);
 
     assert.equal(getLastProcessedBlock(), 50); // unchanged
+  });
+
+  it('processEvents applies VoteSet totals to state', async () => {
+    const { getVotesForSubmission } = await import('../../src/indexer/state.js');
+    const subRef = `bzz://${'a1'.repeat(32)}`;
+
+    mockFetchEvents.mock.mockImplementation(async () => ({
+      ...emptyEvents,
+      votes: [{
+        submissionRef: subRef,
+        submissionId: '0x' + 'a1'.repeat(32),
+        voter: VALID_ADDRESS,
+        rootSubmissionId: '0x' + 'a1'.repeat(32),
+        direction: 1,
+        previousDirection: 0,
+        upvotes: 3,
+        downvotes: 1,
+        blockNumber: 60,
+        logIndex: 0,
+      }],
+    }));
+
+    await processEvents(50, 100);
+
+    const v = getVotesForSubmission(subRef);
+    assert.ok(v);
+    assert.equal(v.upvotes, 3);
+    assert.equal(v.downvotes, 1);
+    assert.equal(v.score, 2);
   });
 });

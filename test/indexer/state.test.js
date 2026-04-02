@@ -14,6 +14,7 @@ const {
   getBoards, addBoard, getKnownBoardSlugs,
   getSubmissions, addSubmission, getSubmissionsForBoard,
   getRootSubmissions, getRepliesForRoot,
+  getVotes, getVotesForSubmission, applyVoteEvent,
   getFeed, setFeed,
   getRetrySubmissions, setRetrySubmissions,
   getRepublishBoards, setRepublishBoards,
@@ -40,6 +41,7 @@ beforeEach(() => {
   setLastProcessedBlock(-1);
   getBoards().clear();
   getSubmissions().clear();
+  getVotes().clear();
   setRetrySubmissions([]);
   setRepublishBoards(new Set());
   setRepublishGlobal(false);
@@ -206,5 +208,116 @@ describe('getRepliesForRoot', () => {
 
     const replies = getRepliesForRoot(rootRef);
     assert.equal(replies.length, 2);
+  });
+});
+
+// =============================================
+// Vote state
+// =============================================
+
+describe('applyVoteEvent', () => {
+  it('stores vote totals from event', () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 3, downvotes: 1,
+      blockNumber: 100, logIndex: 0,
+    });
+
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 3);
+    assert.equal(v.downvotes, 1);
+    assert.equal(v.score, 2);
+    assert.equal(v.updatedAtBlock, 100);
+  });
+
+  it('updates totals from newer event', () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 3, downvotes: 1,
+      blockNumber: 100, logIndex: 0,
+    });
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 4, downvotes: 1,
+      blockNumber: 101, logIndex: 0,
+    });
+
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 4);
+    assert.equal(v.score, 3);
+  });
+
+  it('ignores stale event (older block)', () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 5, downvotes: 2,
+      blockNumber: 200, logIndex: 0,
+    });
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 1, downvotes: 0,
+      blockNumber: 100, logIndex: 0,
+    });
+
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 5);
+    assert.equal(v.updatedAtBlock, 200);
+  });
+
+  it('ignores stale event (same block, older logIndex)', () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 5, downvotes: 2,
+      blockNumber: 200, logIndex: 5,
+    });
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 1, downvotes: 0,
+      blockNumber: 200, logIndex: 3,
+    });
+
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 5);
+    assert.equal(v.updatedAtLogIndex, 5);
+  });
+
+  it('ignores duplicate event (same block and logIndex)', () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 5, downvotes: 2,
+      blockNumber: 200, logIndex: 5,
+    });
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 99, downvotes: 99,
+      blockNumber: 200, logIndex: 5,
+    });
+
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 5);
+  });
+
+  it('returns null for unknown submission', () => {
+    assert.equal(getVotesForSubmission(VALID_BZZ_2), null);
+  });
+});
+
+describe('vote state persistence', () => {
+  it('survives save + load round-trip', async () => {
+    applyVoteEvent({
+      submissionRef: VALID_BZZ,
+      upvotes: 10, downvotes: 3,
+      blockNumber: 500, logIndex: 2,
+    });
+
+    await saveState();
+    getVotes().clear();
+    assert.equal(getVotesForSubmission(VALID_BZZ), null);
+
+    await loadState();
+    const v = getVotesForSubmission(VALID_BZZ);
+    assert.equal(v.upvotes, 10);
+    assert.equal(v.downvotes, 3);
+    assert.equal(v.score, 7);
   });
 });

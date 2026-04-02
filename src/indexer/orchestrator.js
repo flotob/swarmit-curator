@@ -14,6 +14,7 @@ import {
   getSubmissions, addSubmission,
   getRootSubmissions,
   getRetrySubmissions, setRetrySubmissions,
+  applyVoteEvent,
   getRepublishBoards, setRepublishBoards,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
@@ -132,6 +133,12 @@ export async function processEvents(fromBlock, toBlock) {
   }
 
   setRetrySubmissions(stillPending);
+
+  // 4. Process vote events (pure chain state, no Swarm fetch)
+  for (const vote of events.votes) {
+    applyVoteEvent(vote);
+  }
+
   return { changedBoards, changedThreads };
 }
 

@@ -34,6 +34,9 @@ const state = {
   // feedName → manifest hex
   feeds: new Map(),
 
+  // submissionRef (bzz://) → { upvotes, downvotes, score, updatedAtBlock, updatedAtLogIndex }
+  votes: new Map(),
+
   // Track which boards are in the current published curatorProfile
   publishedBoardSlugs: new Set(),
 
@@ -57,6 +60,7 @@ export async function loadState() {
     state.lastProcessedBlock = data.lastProcessedBlock ?? state.lastProcessedBlock;
     state.boards = new Map(Object.entries(data.boards || {}));
     state.submissions = new Map(Object.entries(data.submissions || {}));
+    state.votes = new Map(Object.entries(data.votes || {}));
     state.feeds = new Map(Object.entries(data.feeds || {}));
     state.publishedBoardSlugs = new Set(data.publishedBoardSlugs || []);
     state.retrySubmissions = data.retrySubmissions || [];
@@ -79,6 +83,7 @@ export async function saveState() {
     lastProcessedBlock: state.lastProcessedBlock,
     boards: Object.fromEntries(state.boards),
     submissions: Object.fromEntries(state.submissions),
+    votes: Object.fromEntries(state.votes),
     feeds: Object.fromEntries(state.feeds),
     publishedBoardSlugs: [...state.publishedBoardSlugs],
     retrySubmissions: state.retrySubmissions,
@@ -142,6 +147,37 @@ export function getRepliesForRoot(rootSubmissionRef) {
     }
   }
   return results;
+}
+
+export function getVotes() {
+  return state.votes;
+}
+
+export function getVotesForSubmission(submissionRef) {
+  return state.votes.get(submissionRef) || null;
+}
+
+/**
+ * Apply a decoded VoteSet event to vote state.
+ * Ignores stale events (older block/logIndex than current state).
+ */
+export function applyVoteEvent(voteEvent) {
+  const submissionRef = voteEvent.submissionRef;
+  const existing = state.votes.get(submissionRef);
+
+  if (existing) {
+    const existingOrder = existing.updatedAtBlock * 1e6 + existing.updatedAtLogIndex;
+    const eventOrder = voteEvent.blockNumber * 1e6 + voteEvent.logIndex;
+    if (eventOrder <= existingOrder) return;
+  }
+
+  state.votes.set(submissionRef, {
+    upvotes: voteEvent.upvotes,
+    downvotes: voteEvent.downvotes,
+    score: voteEvent.upvotes - voteEvent.downvotes,
+    updatedAtBlock: voteEvent.blockNumber,
+    updatedAtLogIndex: voteEvent.logIndex,
+  });
 }
 
 export function getFeed(feedName) {
