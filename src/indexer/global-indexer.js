@@ -2,7 +2,7 @@
  * Global indexer — builds globalIndex across all boards in various sort orders.
  */
 
-import { buildGlobalIndex } from '../protocol/objects.js';
+import { buildGlobalIndex } from 'swarmit-protocol';
 import { getRootSubmissions, getAllBoards } from './state.js';
 import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';

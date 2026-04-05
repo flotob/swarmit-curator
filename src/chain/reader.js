@@ -3,29 +3,10 @@
  * Uses confirmation depth to handle reorgs.
  */
 
-import { JsonRpcProvider, Interface } from 'ethers';
+import { JsonRpcProvider } from 'ethers';
 import config from '../config.js';
-import { bytes32ToRef } from '../protocol/references.js';
-
-const ABI = [
-  'event BoardRegistered(bytes32 indexed boardId, string slug, string boardRef, address governance)',
-  'event BoardMetadataUpdated(bytes32 indexed boardId, string boardRef)',
-  'event SubmissionAnnounced(bytes32 indexed boardId, bytes32 indexed submissionId, bytes32 parentSubmissionId, bytes32 rootSubmissionId, address author)',
-  'event CuratorDeclared(address indexed curator, string curatorProfileRef)',
-  'event VoteSet(bytes32 indexed boardId, bytes32 indexed submissionId, address indexed voter, bytes32 rootSubmissionId, int8 direction, int8 previousDirection, uint64 upvotes, uint64 downvotes)',
-];
-
-const iface = new Interface(ABI);
-
-const TOPICS = {
-  BoardRegistered: iface.getEvent('BoardRegistered').topicHash,
-  BoardMetadataUpdated: iface.getEvent('BoardMetadataUpdated').topicHash,
-  SubmissionAnnounced: iface.getEvent('SubmissionAnnounced').topicHash,
-  CuratorDeclared: iface.getEvent('CuratorDeclared').topicHash,
-  VoteSet: iface.getEvent('VoteSet').topicHash,
-};
-
-const BYTES32_ZERO = '0x' + '0'.repeat(64);
+import { bytes32ToRef } from 'swarmit-protocol';
+import { iface, TOPICS, BYTES32_ZERO } from 'swarmit-protocol/chain';
 
 const provider = new JsonRpcProvider(config.rpcUrl);
 

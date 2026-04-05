@@ -6,7 +6,7 @@ setupTestEnv();
 
 const { initDb, closeDb, resetDb, addBoard, addSubmission } = await import('../../src/indexer/state.js');
 const { buildGlobalIndexFromState } = await import('../../src/indexer/global-indexer.js');
-const { validateGlobalIndex } = await import('../../src/protocol/objects.js');
+const { validateGlobalIndex } = await import('swarmit-protocol');
 
 before(() => initDb(':memory:'));
 after(() => closeDb());

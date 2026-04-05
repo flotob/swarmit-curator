@@ -2,8 +2,7 @@
  * Board indexer — builds boardIndex per board in various sort orders.
  */
 
-import { buildBoardIndex } from '../protocol/objects.js';
-import { hexToBzz } from '../protocol/references.js';
+import { buildBoardIndex, hexToBzz } from 'swarmit-protocol';
 import { getRootSubmissions, getFeed } from './state.js';
 import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';

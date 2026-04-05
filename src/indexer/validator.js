@@ -3,9 +3,11 @@
  * Rejects malformed objects, unknown boards, orphaned replies.
  */
 
-import { isValidBzzRef } from '../protocol/references.js';
-import { validateSubmission, validatePost, validateReply, validate } from '../protocol/objects.js';
-import { TYPES } from '../protocol/constants.js';
+import {
+  isValidBzzRef,
+  validateSubmission, validatePost, validateReply, validate,
+  TYPES,
+} from 'swarmit-protocol';
 
 /**
  * Validate a submission object fetched from Swarm.

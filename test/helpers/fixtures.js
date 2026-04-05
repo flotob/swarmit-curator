@@ -2,7 +2,7 @@
  * Shared test fixtures used by all test packages.
  */
 
-import { TYPES } from '../../src/protocol/constants.js';
+import { TYPES } from 'swarmit-protocol';
 
 // --- Valid hex references (64-char) ---
 export const VALID_HEX = 'a'.repeat(64);

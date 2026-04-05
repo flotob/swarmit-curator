@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, VALID_BZZ, VALID_ADDRESS } from '../helpers/fixtures.js';
-import { TYPES } from '../../src/protocol/constants.js';
+import { TYPES } from 'swarmit-protocol';
 
 setupTestEnv();
 

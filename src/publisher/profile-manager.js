@@ -3,16 +3,14 @@
  * curatorProfile is immutable in v1: adding a board means a new object + fresh CuratorDeclared.
  */
 
-import { Wallet, JsonRpcProvider, Interface } from 'ethers';
+import { Wallet, JsonRpcProvider } from 'ethers';
 import config from '../config.js';
 import { publishJSON } from '../swarm/client.js';
-import { hexToBzz } from '../protocol/references.js';
-import { buildCuratorProfile, validate } from '../protocol/objects.js';
+import { hexToBzz, buildCuratorProfile, validate } from 'swarmit-protocol';
+import { encode } from 'swarmit-protocol/chain';
 import { getAllBoards, getPublishedKeys, setPublishedKeys } from '../indexer/state.js';
 import { getFeedBzzUrl } from './feed-manager.js';
 
-const ABI = ['function declareCurator(string curatorProfileRef)'];
-const iface = new Interface(ABI);
 const provider = new JsonRpcProvider(config.rpcUrl);
 const wallet = new Wallet(config.curatorPrivateKey, provider);
 
@@ -99,7 +97,7 @@ export async function publishAndDeclare() {
   console.log(`[Profile] Published curatorProfile: ${bzzUrl}`);
 
   // Emit CuratorDeclared on-chain
-  const data = iface.encodeFunctionData('declareCurator', [bzzUrl]);
+  const data = encode.declareCurator({ curatorProfileRef: bzzUrl });
   const tx = await wallet.sendTransaction({
     to: config.contractAddress,
     data,

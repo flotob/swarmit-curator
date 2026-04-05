@@ -3,9 +3,8 @@
  */
 
 import { createFeedManifest, updateFeed as updateSwarmFeed, publishJSON } from '../swarm/client.js';
-import { hexToBzz } from '../protocol/references.js';
+import { hexToBzz, validate } from 'swarmit-protocol';
 import { getFeed, setFeed } from '../indexer/state.js';
-import { validate } from '../protocol/objects.js';
 
 /**
  * Ensure a feed exists for a given name. Returns the manifest reference.

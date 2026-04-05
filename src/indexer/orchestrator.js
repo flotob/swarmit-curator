@@ -5,7 +5,7 @@
 
 import { getSafeBlockNumber, fetchEvents } from '../chain/reader.js';
 import { fetchObject, clearCache } from '../swarm/client.js';
-import { hexToBzz } from '../protocol/references.js';
+import { hexToBzz } from 'swarmit-protocol';
 import { validateIngestedSubmission, validateIngestedContent, validateReplyConsistency } from './validator.js';
 import {
   getLastProcessedBlock, setLastProcessedBlock, getMeta, setMeta,

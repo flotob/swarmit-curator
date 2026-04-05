@@ -2,7 +2,7 @@
  * Thread indexer — builds threadIndex per root submission from the reply tree.
  */
 
-import { buildThreadIndex } from '../protocol/objects.js';
+import { buildThreadIndex } from 'swarmit-protocol';
 import { getRepliesForRoot } from './state.js';
 import config from '../config.js';
 
