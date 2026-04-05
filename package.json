@@ -16,6 +16,6 @@
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",
-    "swarmit-protocol": "file:../swarmit-protocol"
+    "swarmit-protocol": "github:flotob/swarmit-protocol#v0.1.0"
   }
 }
