@@ -6,7 +6,10 @@
 import { Wallet, JsonRpcProvider } from 'ethers';
 import config from '../config.js';
 import { publishJSON } from '../swarm/client.js';
-import { hexToBzz, buildCuratorProfile, validate } from 'swarmit-protocol';
+import {
+  hexToBzz, buildCuratorProfile, validate,
+  RECOMMENDED_RANKED_VIEW_NAMES,
+} from 'swarmit-protocol';
 import { encode } from 'swarmit-protocol/chain';
 import { getAllBoards, getPublishedKeys, setPublishedKeys } from '../indexer/state.js';
 import { getFeedBzzUrl } from './feed-manager.js';
@@ -14,7 +17,6 @@ import { getFeedBzzUrl } from './feed-manager.js';
 const provider = new JsonRpcProvider(config.rpcUrl);
 const wallet = new Wallet(config.curatorPrivateKey, provider);
 
-const VIEW_NAMES = ['best', 'hot', 'rising', 'controversial'];
 
 /**
  * Check if the curator profile needs to be re-published.
@@ -22,13 +24,13 @@ const VIEW_NAMES = ['best', 'hot', 'rising', 'controversial'];
 export function needsProfileUpdate() {
   const published = getPublishedKeys();
 
-  for (const view of VIEW_NAMES) {
+  for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
     if (getFeedBzzUrl(`${view}-global`) && !published.has(`view:${view}:global`)) return true;
   }
 
   for (const { slug } of getAllBoards()) {
     if (!published.has(`board:${slug}`) && getFeedBzzUrl(`board-${slug}`)) return true;
-    for (const view of VIEW_NAMES) {
+    for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
       if (getFeedBzzUrl(`${view}-board-${slug}`) && !published.has(`view:${view}:board:${slug}`)) return true;
     }
   }
@@ -61,7 +63,7 @@ export async function publishAndDeclare() {
   // Named views — all 5 sort orders
   const globalViewFeeds = {};
   globalViewFeeds.new = chronologicalGlobalUrl;
-  for (const view of VIEW_NAMES) {
+  for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
     const url = getFeedBzzUrl(`${view}-global`);
     if (url) globalViewFeeds[view] = url;
   }
@@ -70,7 +72,7 @@ export async function publishAndDeclare() {
   for (const slug of Object.keys(boardFeeds)) {
     const views = {};
     views.new = getFeedBzzUrl(`board-${slug}`);
-    for (const view of VIEW_NAMES) {
+    for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
       const url = getFeedBzzUrl(`${view}-board-${slug}`);
       if (url) views[view] = url;
     }
@@ -107,7 +109,7 @@ export async function publishAndDeclare() {
 
   // Track boards + all named-view markers that appear in this profile
   const publishedKeys = Object.keys(boardFeeds).map((slug) => `board:${slug}`);
-  for (const view of VIEW_NAMES) {
+  for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
     if (globalViewFeeds[view]) publishedKeys.push(`view:${view}:global`);
     for (const slug of Object.keys(boardViewFeeds)) {
       if (boardViewFeeds[slug][view]) publishedKeys.push(`view:${view}:board:${slug}`);
