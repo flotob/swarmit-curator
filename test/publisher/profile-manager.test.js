@@ -2,8 +2,11 @@ import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { VALID_ADDRESS } from '../helpers/fixtures.js';
 
-// --- Load real ethers for Interface + keccak256/toUtf8Bytes ---
-const { Interface: RealInterface, keccak256: realKeccak256, toUtf8Bytes: realToUtf8Bytes } = await import('ethers');
+// Load the real ethers module once so we can pass everything through to the
+// mock and only override Wallet/JsonRpcProvider. This keeps the mock robust
+// against the library adding new ethers imports (ZeroHash, id, …).
+const realEthers = await import('ethers');
+const { Interface: RealInterface } = realEthers;
 
 // Build expected calldata using the real ABI — if the ABI drifts, tests catch it
 const declareCuratorIface = new RealInterface(['function declareCurator(string curatorProfileRef)']);
@@ -33,16 +36,12 @@ const mockSendTransaction = mock.fn(async () => ({
 
 mock.module('ethers', {
   namedExports: {
+    ...realEthers,
     Wallet: class MockWallet {
       constructor() { this.address = VALID_ADDRESS; }
       sendTransaction(tx) { return mockSendTransaction(tx); }
     },
     JsonRpcProvider: class MockProvider {},
-    // Real Interface — exercises the actual ABI for encodeFunctionData
-    Interface: RealInterface,
-    // Real keccak256/toUtf8Bytes — needed by references.js (transitively loaded)
-    keccak256: realKeccak256,
-    toUtf8Bytes: realToUtf8Bytes,
   },
 });
 

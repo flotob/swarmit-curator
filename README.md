@@ -88,15 +88,16 @@ See [docs/architecture.md](docs/architecture.md) for the full design.
 
 Key modules:
 
-- `src/chain/reader.js` — polls chain events with confirmation depth
-- `src/swarm/client.js` — bee-js wrapper for fetch, publish, feeds
-- `src/indexer/validator.js` — validates objects before indexing
-- `src/indexer/state.js` — persistent JSON state (rebuildable cache)
+- `src/chain/reader.js` — polls chain events with confirmation depth; ABI + event topics from `swarmit-protocol/chain`
+- `src/swarm/client.js` — thin adapter exposing the shared `swarmit-protocol/swarm` Bee client as module-level exports
+- `src/indexer/validator.js` — validates ingested objects (wraps `swarmit-protocol` validators with curator-local known-boards + reply-consistency checks)
+- `src/indexer/state.js` — persistent SQLite state (rebuildable cache)
 - `src/indexer/board-indexer.js` — builds boardIndex per board
 - `src/indexer/thread-indexer.js` — builds threadIndex per thread
 - `src/publisher/feed-manager.js` — creates and updates Swarm feeds
-- `src/publisher/profile-manager.js` — publishes curatorProfile + CuratorDeclared tx
-- `src/protocol/` — shared protocol logic (copied from SPA)
+- `src/publisher/profile-manager.js` — publishes curatorProfile + CuratorDeclared tx (via `encode.declareCurator` from `swarmit-protocol/chain`)
+
+Protocol object builders, validators, reference helpers, and the contract ABI live in [`swarmit-protocol`](https://github.com/flotob/swarmit-protocol) — no longer copied into this repo.
 
 ## State
 

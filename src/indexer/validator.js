@@ -6,7 +6,6 @@
 import {
   isValidBzzRef,
   validateSubmission, validatePost, validateReply, validate,
-  TYPES,
 } from 'swarmit-protocol';
 
 /**

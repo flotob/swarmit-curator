@@ -1,11 +1,11 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-// --- Load real ethers Interface for ABI encoding/decoding ---
-// This ensures we exercise the actual ABI fragments and event-signature wiring.
-// If reader.js's ABI drifts from what we encode here, tests fail.
-
-const { Interface: RealInterface, getAddress, keccak256, toUtf8Bytes } = await import('ethers');
+// Load the real ethers module once so we can pass everything through to
+// the mock and only override the network-hitting provider. This keeps the
+// mock robust against the library adding new ethers imports (ZeroHash, id, …).
+const realEthers = await import('ethers');
+const { Interface: RealInterface, getAddress } = realEthers;
 
 // Same ABI as reader.js — kept in sync so topic-hash mismatches catch drift
 const ABI = [
@@ -48,12 +48,7 @@ let mockGetLogs = async () => [];
 
 mock.module('ethers', {
   namedExports: {
-    // Real Interface — topic hashes and parseLog exercise the actual ABI
-    Interface: RealInterface,
-    // Real utilities needed by references.js
-    keccak256,
-    toUtf8Bytes,
-    // Mock Provider — only network I/O is stubbed
+    ...realEthers,
     JsonRpcProvider: class MockProvider {
       async getBlockNumber() { return mockGetBlockNumber(); }
       async getLogs(filter) { return mockGetLogs(filter); }
