@@ -23,7 +23,7 @@ import { buildThreadIndexForRoot } from './thread-indexer.js';
 import { collectAllPosts, buildGlobalIndexFromState, buildBestGlobalIndex, buildHotGlobalIndex, buildRisingGlobalIndex, buildControversialGlobalIndex } from './global-indexer.js';
 import config from '../config.js';
 import { publishAndUpdateFeed } from '../publisher/feed-manager.js';
-import { needsProfileUpdate, publishAndDeclare } from '../publisher/profile-manager.js';
+import { needsProfileUpdate, publishProfileToFeed, ensureDeclared } from '../publisher/profile-manager.js';
 
 export const MAX_BLOCKS_PER_POLL = 10_000;
 
@@ -31,8 +31,10 @@ export function hasPendingWork() {
   return getRetrySubmissions().length > 0
     || getRepublishBoards().size > 0
     || getRepublishGlobal()
-    || getRepublishProfile()
-    || needsProfileUpdate();
+    || getRepublishProfile();
+  // needsProfileUpdate() removed — signature check builds the entire profile
+  // and should only run inside publishGlobalAndProfile() where we'd actually
+  // publish. The retry flag (getRepublishProfile) handles the "wake up" case.
 }
 
 export async function processEvents(fromBlock, toBlock) {
@@ -315,10 +317,11 @@ export async function publishGlobalAndProfile() {
     }
   }
 
-  // Curator profile
+  // Curator profile — publish to feed, then ensure on-chain declaration
   if (needsProfileUpdate() || getRepublishProfile()) {
     try {
-      await publishAndDeclare();
+      await publishProfileToFeed();
+      await ensureDeclared();
       setRepublishProfile(false);
     } catch (err) {
       console.error(`[Profile] Failed to update: ${err.message}`);

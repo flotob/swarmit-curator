@@ -43,7 +43,8 @@ mock.module('../../src/publisher/feed-manager.js', {
 mock.module('../../src/publisher/profile-manager.js', {
   namedExports: {
     needsProfileUpdate: mockNeedsProfileUpdate,
-    publishAndDeclare: mockPublishAndDeclare,
+    publishProfileToFeed: mock.fn(async () => {}),
+    ensureDeclared: mock.fn(async () => {}),
   },
 });
 

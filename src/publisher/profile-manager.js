@@ -1,50 +1,35 @@
 /**
- * Profile manager — builds, publishes, and declares curatorProfile on-chain.
- * curatorProfile is immutable in v1: adding a board means a new object + fresh CuratorDeclared.
+ * Profile manager — builds, publishes to a stable feed, and ensures
+ * on-chain declaration points at the feed manifest.
+ *
+ * The curator profile is published to a Swarm feed (topic: CURATOR_PROFILE_FEED_NAME).
+ * The on-chain CuratorDeclared event points at the feed manifest ref, not an
+ * immutable content ref. Declaration happens once (or on migration); profile
+ * updates are feed writes only — no gas, no chain churn.
  */
 
 import { Wallet, JsonRpcProvider } from 'ethers';
 import config from '../config.js';
-import { publishJSON } from '../swarm/client.js';
 import {
   hexToBzz, buildCuratorProfile, validate,
   RECOMMENDED_RANKED_VIEW_NAMES,
+  CURATOR_PROFILE_FEED_NAME,
 } from 'swarmit-protocol';
-import { encode } from 'swarmit-protocol/chain';
-import { getAllBoards, getPublishedKeys, setPublishedKeys } from '../indexer/state.js';
-import { getFeedBzzUrl } from './feed-manager.js';
+import { iface, TOPICS, encode } from 'swarmit-protocol/chain';
+import { getMeta, setMeta, getAllBoards } from '../indexer/state.js';
+import { publishAndUpdateFeed, getFeedBzzUrl } from './feed-manager.js';
 
 const provider = new JsonRpcProvider(config.rpcUrl);
 const wallet = new Wallet(config.curatorPrivateKey, provider);
 
+// --- Profile building ---
 
 /**
- * Check if the curator profile needs to be re-published.
+ * Build the current curatorProfile from state. Pure function — no I/O.
+ * Throws if no global feed exists yet (nothing to publish).
+ * @returns {Object} Validated curatorProfile object
  */
-export function needsProfileUpdate() {
-  const published = getPublishedKeys();
-
-  for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
-    if (getFeedBzzUrl(`${view}-global`) && !published.has(`view:${view}:global`)) return true;
-  }
-
-  for (const { slug } of getAllBoards()) {
-    if (!published.has(`board:${slug}`) && getFeedBzzUrl(`board-${slug}`)) return true;
-    for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
-      if (getFeedBzzUrl(`${view}-board-${slug}`) && !published.has(`view:${view}:board:${slug}`)) return true;
-    }
-  }
-
-  return false;
-}
-
-/**
- * Build, validate, publish curatorProfile, and emit CuratorDeclared on-chain.
- * Default feed = hot. Named views expose all 5 sort orders.
- * @returns {Promise<string>} The published curatorProfile bzz:// ref
- */
-export async function publishAndDeclare() {
-  // Board feeds: default = hot, fallback to chronological
+export function buildProfile() {
   const boardFeeds = {};
   for (const { slug } of getAllBoards()) {
     const hotUrl = getFeedBzzUrl(`hot-board-${slug}`);
@@ -52,15 +37,13 @@ export async function publishAndDeclare() {
     if (defaultUrl) boardFeeds[slug] = defaultUrl;
   }
 
-  // Global feed: default = hot, fallback to chronological
   const hotGlobalUrl = getFeedBzzUrl('hot-global');
   const chronologicalGlobalUrl = getFeedBzzUrl('global');
   const globalIndexFeed = hotGlobalUrl || chronologicalGlobalUrl;
   if (!globalIndexFeed) {
-    throw new Error('Cannot publish curatorProfile: no global feed yet created');
+    throw new Error('Cannot build curatorProfile: no global feed yet created');
   }
 
-  // Named views — all 5 sort orders
   const globalViewFeeds = {};
   globalViewFeeds.new = chronologicalGlobalUrl;
   for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
@@ -94,28 +77,91 @@ export async function publishAndDeclare() {
     throw new Error(`curatorProfile validation failed: ${result.errors.join(', ')}`);
   }
 
-  const contentRef = await publishJSON(profile);
-  const bzzUrl = hexToBzz(contentRef);
-  console.log(`[Profile] Published curatorProfile: ${bzzUrl}`);
+  return profile;
+}
 
-  // Emit CuratorDeclared on-chain
-  const data = encode.declareCurator({ curatorProfileRef: bzzUrl });
+// --- Change detection ---
+
+/**
+ * Check if the curator profile content has changed since the last publish.
+ * Uses JSON.stringify as a stable signature — the profile has no timestamps,
+ * so identical logical content produces identical strings.
+ */
+export function needsProfileUpdate() {
+  try {
+    const profile = buildProfile();
+    const currentSig = JSON.stringify(profile);
+    const lastSig = getMeta('last_profile_signature', null);
+    return currentSig !== lastSig;
+  } catch {
+    return false; // no global feed yet — nothing to publish
+  }
+}
+
+// --- Feed publication ---
+
+/**
+ * Publish the current profile to the stable curator profile feed.
+ * Uses the same feed machinery as board/global/thread feeds.
+ * @returns {Promise<string>} Profile feed manifest bzz:// URL
+ */
+export async function publishProfileToFeed() {
+  const profile = buildProfile();
+
+  await publishAndUpdateFeed(CURATOR_PROFILE_FEED_NAME, profile, 'curatorProfile');
+
+  setMeta('last_profile_signature', JSON.stringify(profile));
+  console.log(`[Profile] Updated profile feed`);
+
+  return getFeedBzzUrl(CURATOR_PROFILE_FEED_NAME);
+}
+
+// --- On-chain declaration ---
+
+/**
+ * Query the chain for this curator's latest CuratorDeclared event.
+ * @returns {Promise<string|null>} The curatorProfileRef from the latest declaration, or null
+ */
+async function getLatestOwnDeclaration() {
+  const fromHex = '0x' + config.contractDeployBlock.toString(16);
+  const curatorTopic = '0x' + config.curatorAddress.slice(2).toLowerCase().padStart(64, '0');
+
+  const logs = await provider.getLogs({
+    address: config.contractAddress,
+    topics: [TOPICS.CuratorDeclared, curatorTopic],
+    fromBlock: fromHex,
+    toBlock: 'latest',
+  });
+
+  if (logs.length === 0) return null;
+
+  const last = logs[logs.length - 1];
+  const parsed = iface.parseLog({ topics: last.topics, data: last.data });
+  return parsed.args.curatorProfileRef;
+}
+
+/**
+ * Ensure the on-chain CuratorDeclared event points at the current profile
+ * feed manifest. Sends a tx only if the declaration is missing or stale.
+ */
+export async function ensureDeclared() {
+  const feedBzzUrl = getFeedBzzUrl(CURATOR_PROFILE_FEED_NAME);
+  if (!feedBzzUrl) {
+    throw new Error('Cannot ensure declaration: profile feed not yet created');
+  }
+
+  const latestDeclared = await getLatestOwnDeclaration();
+
+  if (latestDeclared === feedBzzUrl) {
+    console.log(`[Profile] Declaration already points at profile feed, skipping tx`);
+    return;
+  }
+
+  const data = encode.declareCurator({ curatorProfileRef: feedBzzUrl });
   const tx = await wallet.sendTransaction({
     to: config.contractAddress,
     data,
   });
   const receipt = await tx.wait();
   console.log(`[Profile] CuratorDeclared tx: ${receipt.hash} (block ${receipt.blockNumber})`);
-
-  // Track boards + all named-view markers that appear in this profile
-  const publishedKeys = Object.keys(boardFeeds).map((slug) => `board:${slug}`);
-  for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
-    if (globalViewFeeds[view]) publishedKeys.push(`view:${view}:global`);
-    for (const slug of Object.keys(boardViewFeeds)) {
-      if (boardViewFeeds[slug][view]) publishedKeys.push(`view:${view}:board:${slug}`);
-    }
-  }
-  setPublishedKeys(publishedKeys);
-
-  return bzzUrl;
 }

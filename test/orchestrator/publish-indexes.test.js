@@ -8,7 +8,8 @@ setupTestEnv();
 
 const mockPublishAndUpdateFeed = mock.fn(async () => 'c'.repeat(64));
 const mockNeedsProfileUpdate = mock.fn(() => false);
-const mockPublishAndDeclare = mock.fn(async () => {});
+const mockPublishProfileToFeed = mock.fn(async () => {});
+const mockEnsureDeclared = mock.fn(async () => {});
 
 mock.module('../../src/chain/reader.js', {
   namedExports: {
@@ -37,7 +38,8 @@ mock.module('../../src/publisher/feed-manager.js', {
 mock.module('../../src/publisher/profile-manager.js', {
   namedExports: {
     needsProfileUpdate: mockNeedsProfileUpdate,
-    publishAndDeclare: mockPublishAndDeclare,
+    publishProfileToFeed: mockPublishProfileToFeed,
+    ensureDeclared: mockEnsureDeclared,
   },
 });
 
@@ -122,10 +124,12 @@ describe('publishGlobalAndProfile', () => {
   beforeEach(() => {
     resetDb();
     mockPublishAndUpdateFeed.mock.resetCalls();
-    mockPublishAndDeclare.mock.resetCalls();
+    mockPublishProfileToFeed.mock.resetCalls();
+    mockEnsureDeclared.mock.resetCalls();
     mockNeedsProfileUpdate.mock.mockImplementation(() => false);
     mockPublishAndUpdateFeed.mock.mockImplementation(async () => 'c'.repeat(64));
-    mockPublishAndDeclare.mock.mockImplementation(async () => {});
+    mockPublishProfileToFeed.mock.mockImplementation(async () => {});
+    mockEnsureDeclared.mock.mockImplementation(async () => {});
   });
 
   it('republishGlobal=true, success → sets to false', async () => {
@@ -141,24 +145,26 @@ describe('publishGlobalAndProfile', () => {
     assert.equal(getRepublishGlobal(), true);
   });
 
-  it('needsProfileUpdate=true → publishAndDeclare called, republishProfile set false', async () => {
+  it('needsProfileUpdate=true → publishProfileToFeed + ensureDeclared called, republishProfile set false', async () => {
     mockNeedsProfileUpdate.mock.mockImplementation(() => true);
     await publishGlobalAndProfile();
-    assert.equal(mockPublishAndDeclare.mock.callCount(), 1);
+    assert.equal(mockPublishProfileToFeed.mock.callCount(), 1);
+    assert.equal(mockEnsureDeclared.mock.callCount(), 1);
     assert.equal(getRepublishProfile(), false);
   });
 
-  it('republishProfile=true (needsProfileUpdate=false) → publishAndDeclare still called', async () => {
+  it('republishProfile=true (needsProfileUpdate=false) → publishProfileToFeed + ensureDeclared still called', async () => {
     setRepublishProfile(true);
     mockNeedsProfileUpdate.mock.mockImplementation(() => false);
     await publishGlobalAndProfile();
-    assert.equal(mockPublishAndDeclare.mock.callCount(), 1);
+    assert.equal(mockPublishProfileToFeed.mock.callCount(), 1);
+    assert.equal(mockEnsureDeclared.mock.callCount(), 1);
     assert.equal(getRepublishProfile(), false);
   });
 
-  it('publishAndDeclare throws → republishProfile set true', async () => {
+  it('publishProfileToFeed throws → republishProfile set true', async () => {
     mockNeedsProfileUpdate.mock.mockImplementation(() => true);
-    mockPublishAndDeclare.mock.mockImplementation(async () => { throw new Error('fail'); });
+    mockPublishProfileToFeed.mock.mockImplementation(async () => { throw new Error('fail'); });
     await publishGlobalAndProfile();
     assert.equal(getRepublishProfile(), true);
   });
@@ -167,7 +173,8 @@ describe('publishGlobalAndProfile', () => {
     setRepublishGlobal(true);
     mockNeedsProfileUpdate.mock.mockImplementation(() => true);
     mockPublishAndUpdateFeed.mock.mockImplementation(async () => { throw new Error('global fail'); });
-    mockPublishAndDeclare.mock.mockImplementation(async () => {});
+    mockPublishProfileToFeed.mock.mockImplementation(async () => {});
+    mockEnsureDeclared.mock.mockImplementation(async () => {});
 
     await publishGlobalAndProfile();
 
