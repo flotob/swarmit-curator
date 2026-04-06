@@ -153,12 +153,12 @@ describe('publishGlobalAndProfile', () => {
     assert.equal(getRepublishProfile(), false);
   });
 
-  it('republishProfile=true (needsProfileUpdate=false) → publishProfileToFeed + ensureDeclared still called', async () => {
+  it('republishProfile=true (needsProfileUpdate=false) → skips feed republish, retries declaration only', async () => {
     setRepublishProfile(true);
     mockNeedsProfileUpdate.mock.mockImplementation(() => false);
     await publishGlobalAndProfile();
-    assert.equal(mockPublishProfileToFeed.mock.callCount(), 1);
-    assert.equal(mockEnsureDeclared.mock.callCount(), 1);
+    assert.equal(mockPublishProfileToFeed.mock.callCount(), 0); // profile already up-to-date
+    assert.equal(mockEnsureDeclared.mock.callCount(), 1);       // declaration retry
     assert.equal(getRepublishProfile(), false);
   });
 

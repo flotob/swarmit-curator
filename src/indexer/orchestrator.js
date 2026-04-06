@@ -314,15 +314,29 @@ export async function publishGlobalAndProfile() {
     }
   }
 
-  // Curator profile — publish to feed, then ensure on-chain declaration
-  if (needsProfileUpdate() || getRepublishProfile()) {
-    try {
-      await publishProfileToFeed();
-      await ensureDeclared();
-      setRepublishProfile(false);
-    } catch (err) {
-      console.error(`[Profile] Failed to update: ${err.message}`);
-      setRepublishProfile(true);
+  // Curator profile — publish to feed if content changed, then ensure declaration.
+  // Split so a declaration-only failure doesn't re-upload identical content.
+  const profileChanged = needsProfileUpdate();
+  if (profileChanged || getRepublishProfile()) {
+    let feedOk = !profileChanged; // already up-to-date → skip feed write
+    if (!feedOk) {
+      try {
+        await publishProfileToFeed();
+        feedOk = true;
+      } catch (err) {
+        console.error(`[Profile] Feed publish failed: ${err.message}`);
+        setRepublishProfile(true);
+      }
+    }
+
+    if (feedOk) {
+      try {
+        await ensureDeclared();
+        setRepublishProfile(false);
+      } catch (err) {
+        console.error(`[Profile] Declaration failed: ${err.message}`);
+        setRepublishProfile(true);
+      }
     }
   }
 }
