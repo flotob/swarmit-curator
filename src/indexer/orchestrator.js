@@ -31,10 +31,7 @@ export function hasPendingWork() {
   return getRetrySubmissions().length > 0
     || getRepublishBoards().size > 0
     || getRepublishGlobal()
-    || getRepublishProfile();
-  // needsProfileUpdate() removed — signature check builds the entire profile
-  // and should only run inside publishGlobalAndProfile() where we'd actually
-  // publish. The retry flag (getRepublishProfile) handles the "wake up" case.
+    || getRepublishProfile(); // profile content check deferred to publish time (too expensive for idle)
 }
 
 export async function processEvents(fromBlock, toBlock) {

@@ -8,10 +8,10 @@
  * updates are feed writes only — no gas, no chain churn.
  */
 
-import { Wallet, JsonRpcProvider } from 'ethers';
+import { Wallet, JsonRpcProvider, zeroPadValue } from 'ethers';
 import config from '../config.js';
 import {
-  hexToBzz, buildCuratorProfile, validate,
+  buildCuratorProfile, validate,
   RECOMMENDED_RANKED_VIEW_NAMES,
   CURATOR_PROFILE_FEED_NAME,
 } from 'swarmit-protocol';
@@ -123,8 +123,12 @@ export async function publishProfileToFeed() {
  * @returns {Promise<string|null>} The curatorProfileRef from the latest declaration, or null
  */
 async function getLatestOwnDeclaration() {
+  // Check cached declaration first — avoids an RPC round-trip on every publish cycle.
+  const cached = getMeta('last_declared_ref', null);
+  if (cached) return cached;
+
   const fromHex = '0x' + config.contractDeployBlock.toString(16);
-  const curatorTopic = '0x' + config.curatorAddress.slice(2).toLowerCase().padStart(64, '0');
+  const curatorTopic = zeroPadValue(config.curatorAddress, 32);
 
   const logs = await provider.getLogs({
     address: config.contractAddress,
@@ -137,7 +141,11 @@ async function getLatestOwnDeclaration() {
 
   const last = logs[logs.length - 1];
   const parsed = iface.parseLog({ topics: last.topics, data: last.data });
-  return parsed.args.curatorProfileRef;
+  const ref = parsed.args.curatorProfileRef;
+
+  // Cache so subsequent calls skip the RPC.
+  setMeta('last_declared_ref', ref);
+  return ref;
 }
 
 /**
@@ -164,4 +172,7 @@ export async function ensureDeclared() {
   });
   const receipt = await tx.wait();
   console.log(`[Profile] CuratorDeclared tx: ${receipt.hash} (block ${receipt.blockNumber})`);
+
+  // Update cache so the next ensureDeclared() call skips the RPC.
+  setMeta('last_declared_ref', feedBzzUrl);
 }

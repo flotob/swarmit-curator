@@ -239,6 +239,23 @@ describe('needsProfileUpdate — signature detection', () => {
   });
 });
 
+describe('buildProfile — error cases', () => {
+  it('throws when no global feed exists', () => {
+    resetDb();
+    mockGetFeedBzzUrl.mock.mockImplementation(() => null);
+    addBoard('gen', { boardId: 'gen', slug: 'gen' });
+    assert.throws(() => buildProfile(), /no global feed/);
+  });
+});
+
+describe('ensureDeclared — error cases', () => {
+  it('throws when profile feed not yet created', async () => {
+    resetDb();
+    mockGetFeedBzzUrl.mock.mockImplementation(() => null);
+    await assert.rejects(() => ensureDeclared(), /profile feed not yet created/);
+  });
+});
+
 // ===========================================
 // Test 6: Republish retry semantics
 // ===========================================
