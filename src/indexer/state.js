@@ -12,7 +12,7 @@ export {
   getRepublishProfile, setRepublishProfile,
 } from '../db/repos/meta.js';
 
-export { addBoard, getAllBoards, getKnownBoardSlugs } from '../db/repos/boards.js';
+export { addBoard, getAllBoards } from '../db/repos/boards.js';
 export { updateBoardRef as updateBoardMetadata } from '../db/repos/boards.js';
 
 export { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../db/repos/submissions.js';

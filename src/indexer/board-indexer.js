@@ -2,7 +2,7 @@
  * Board indexer — builds boardIndex per board in various sort orders.
  */
 
-import { buildBoardIndex, hexToBzz } from 'swarmit-protocol';
+import { buildBoardIndex, hexToBzz, slugToBoardId } from 'swarmit-protocol';
 import { getRootSubmissions, getFeed } from './state.js';
 import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';
@@ -19,7 +19,7 @@ function buildEntry(post) {
 
 function buildIndex(boardSlug, posts) {
   return buildBoardIndex({
-    boardId: boardSlug,
+    boardId: slugToBoardId(boardSlug),
     curator: config.curatorAddress,
     entries: posts.map(buildEntry),
   });

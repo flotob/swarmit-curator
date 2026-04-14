@@ -2,7 +2,7 @@
  * Shared test fixtures used by all test packages.
  */
 
-import { TYPES } from 'swarmit-protocol';
+import { TYPES, slugToBoardId } from 'swarmit-protocol';
 
 // --- Valid hex references (64-char) ---
 export const VALID_HEX = 'a'.repeat(64);
@@ -28,7 +28,6 @@ export const VALID_ADDRESS_2 = '0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF';
 // --- Composite helpers ---
 export const validAuthor = () => ({
   address: VALID_ADDRESS,
-  userFeed: VALID_BZZ,
 });
 
 export const validBody = () => ({
@@ -36,14 +35,17 @@ export const validBody = () => ({
   text: 'Hello, world!',
 });
 
-// --- Known board slugs ---
-export const BOARD_SLUGS = new Set(['general', 'tech', 'random']);
+// --- Known boards ---
+export const BOARD_ID_GENERAL = slugToBoardId('general');
+export const BOARD_ID_TECH = slugToBoardId('tech');
+export const BOARD_ID_RANDOM = slugToBoardId('random');
+export const KNOWN_BOARD_IDS = new Set([BOARD_ID_GENERAL, BOARD_ID_TECH, BOARD_ID_RANDOM]);
 
 // --- Pre-built valid protocol objects (factory functions to avoid shared mutation) ---
 
 export const validBoard = () => ({
   protocol: TYPES.BOARD,
-  boardId: 'general',
+  boardId: BOARD_ID_GENERAL,
   slug: 'general',
   title: 'General Discussion',
   description: 'A board for general topics',
@@ -68,7 +70,7 @@ export const validReply = () => ({
 
 export const validSubmissionPost = () => ({
   protocol: TYPES.SUBMISSION,
-  boardId: 'general',
+  boardId: BOARD_ID_GENERAL,
   kind: 'post',
   contentRef: VALID_BZZ,
   author: validAuthor(),
@@ -77,7 +79,7 @@ export const validSubmissionPost = () => ({
 
 export const validSubmissionReply = () => ({
   protocol: TYPES.SUBMISSION,
-  boardId: 'general',
+  boardId: BOARD_ID_GENERAL,
   kind: 'reply',
   contentRef: VALID_BZZ,
   author: validAuthor(),
@@ -86,16 +88,9 @@ export const validSubmissionReply = () => ({
   createdAt: Date.now(),
 });
 
-export const validUserFeedIndex = () => ({
-  protocol: TYPES.USER_FEED,
-  author: VALID_ADDRESS,
-  updatedAt: Date.now(),
-  entries: [],
-});
-
 export const validBoardIndex = () => ({
   protocol: TYPES.BOARD_INDEX,
-  boardId: 'general',
+  boardId: BOARD_ID_GENERAL,
   curator: VALID_ADDRESS,
   updatedAt: Date.now(),
   entries: [],

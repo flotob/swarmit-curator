@@ -11,13 +11,12 @@ import {
 /**
  * Validate a submission object fetched from Swarm.
  * @param {Object} submission
- * @param {Set<string>} knownBoards - Set of known board slugs
+ * @param {{ has: (id: string) => boolean }} knownBoards - Set or Map keyed by bytes32 boardId
  * @returns {{ valid: boolean, errors: string[] }}
  */
 export function validateIngestedSubmission(submission, knownBoards) {
   const errors = validateSubmission(submission);
 
-  // Check board is registered
   if (submission.boardId && !knownBoards.has(submission.boardId)) {
     errors.push(`board "${submission.boardId}" is not registered`);
   }

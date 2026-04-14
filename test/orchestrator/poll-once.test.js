@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz, VALID_BZZ, VALID_BZZ_2, VALID_ADDRESS } from '../helpers/fixtures.js';
-import { TYPES } from 'swarmit-protocol';
+import { TYPES, slugToBoardId } from 'swarmit-protocol';
 
 setupTestEnv();
 
@@ -97,20 +97,20 @@ describe('pollOnce', () => {
     const ref = 'a'.repeat(64);
     const submission = {
       protocol: TYPES.SUBMISSION,
-      boardId: 'general',
+      boardId: slugToBoardId('general'),
       kind: 'post',
       contentRef: VALID_BZZ_2,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       createdAt: Date.now(),
     };
     const post = {
       protocol: TYPES.POST,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       title: 'T', body: { kind: 'markdown', text: 'x' },
       createdAt: Date.now(),
     };
 
-    addBoard('general', { boardId: 'general', slug: 'general' });
+    addBoard('general', { boardId: slugToBoardId('general') });
 
     mockFetchEvents.mock.mockImplementation(async () => ({
       ...emptyEvents,
@@ -132,7 +132,7 @@ describe('pollOnce', () => {
   it('no new blocks + retry queue → retries drained, cursor NOT advanced', async () => {
     setLastProcessedBlock(100);
     mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-    addBoard('general', { boardId: 'general', slug: 'general' });
+    addBoard('general', { boardId: slugToBoardId('general') });
 
     const parentRef = 'a1'.repeat(32);
     const replyRef = 'b2'.repeat(32);
@@ -149,16 +149,16 @@ describe('pollOnce', () => {
 
     const replySubmission = {
       protocol: TYPES.SUBMISSION,
-      boardId: 'general', kind: 'reply',
+      boardId: slugToBoardId('general'), kind: 'reply',
       contentRef: VALID_BZZ_2,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       parentSubmissionId: parentBzz,
       rootSubmissionId: parentBzz,
       createdAt: Date.now(),
     };
     const replyContent = {
       protocol: TYPES.REPLY,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       body: { kind: 'markdown', text: 'r' },
       createdAt: Date.now(),
     };
@@ -202,7 +202,7 @@ describe('pollOnce', () => {
   it('block cursor advances after processEvents, before publish', async () => {
     setLastProcessedBlock(49);
     mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-    addBoard('general', { boardId: 'general', slug: 'general' });
+    addBoard('general', { boardId: slugToBoardId('general') });
 
     // Make publishAndUpdateFeed throw — cursor should still be advanced
     mockPublishAndUpdateFeed.mock.mockImplementation(async () => { throw new Error('publish fail'); });
@@ -215,14 +215,14 @@ describe('pollOnce', () => {
     }));
     const submission = {
       protocol: TYPES.SUBMISSION,
-      boardId: 'general', kind: 'post',
+      boardId: slugToBoardId('general'), kind: 'post',
       contentRef: VALID_BZZ_2,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       createdAt: Date.now(),
     };
     const post = {
       protocol: TYPES.POST,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       title: 'T', body: { kind: 'markdown', text: 'x' },
       createdAt: Date.now(),
     };
@@ -243,7 +243,7 @@ describe('pollOnce', () => {
   it('normal event-driven publish updates last_ranked_refresh_at, preventing immediate timed refresh', async () => {
     setLastProcessedBlock(99);
     mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-    addBoard('general', { boardId: 'general' });
+    addBoard('general', { boardId: slugToBoardId('general') });
 
     // A submission arrives → triggers event-driven publish with ranked feeds
     const ref = 'e1'.repeat(32);
@@ -253,14 +253,14 @@ describe('pollOnce', () => {
     }));
     const submission = {
       protocol: TYPES.SUBMISSION,
-      boardId: 'general', kind: 'post',
+      boardId: slugToBoardId('general'), kind: 'post',
       contentRef: VALID_BZZ_2,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       createdAt: Date.now(),
     };
     const post = {
       protocol: TYPES.POST,
-      author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+      author: { address: VALID_ADDRESS },
       title: 'T', body: { kind: 'markdown', text: 'x' },
       createdAt: Date.now(),
     };

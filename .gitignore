@@ -2,6 +2,6 @@ node_modules/
 .env
 state.json
 state.db
-state.db-wal
-state.db-shm
+state.db-*
+state.db.*
 .DS_Store

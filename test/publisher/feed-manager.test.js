@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, VALID_BZZ, VALID_ADDRESS } from '../helpers/fixtures.js';
-import { TYPES } from 'swarmit-protocol';
+import { TYPES, slugToBoardId } from 'swarmit-protocol';
 
 setupTestEnv();
 
@@ -41,7 +41,7 @@ describe('publishAndUpdateFeed', () => {
   it('valid object → publishJSON called, feed created, feed updated', async () => {
     const validIndex = {
       protocol: TYPES.BOARD_INDEX,
-      boardId: 'test',
+      boardId: slugToBoardId('test'),
       curator: VALID_ADDRESS,
       updatedAt: Date.now(),
       entries: [],
