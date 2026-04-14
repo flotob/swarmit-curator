@@ -22,11 +22,15 @@ export function collectAllPosts() {
 }
 
 function toGlobalEntries(posts) {
-  return posts.map((post) => ({
-    boardId: slugToBoardId(post.boardId),
-    submissionId: post.submissionRef,
-    submissionRef: post.submissionRef,
-  }));
+  return posts.map((post) => {
+    const boardSlug = post.boardId;
+    return {
+      boardId: slugToBoardId(boardSlug),
+      boardSlug,
+      submissionId: post.submissionRef,
+      submissionRef: post.submissionRef,
+    };
+  });
 }
 
 function buildIndex(posts) {

@@ -35,12 +35,13 @@ describe('buildGlobalIndexFromState', () => {
     assert.equal(index.entries[2].submissionId, bzz('e1'));
   });
 
-  it('entries include boardId', () => {
+  it('entries include boardId (bytes32) and boardSlug', () => {
     addBoard('board-c', { boardId: slugToBoardId('board-c') });
     addSubmission(bzz('e4'), { boardId: 'board-c', kind: 'post', blockNumber: 100, logIndex: 0 });
 
     const index = buildGlobalIndexFromState();
     assert.equal(index.entries[0].boardId, slugToBoardId('board-c'));
+    assert.equal(index.entries[0].boardSlug, 'board-c');
   });
 
   it('only includes posts, not replies', () => {
