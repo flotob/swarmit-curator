@@ -249,6 +249,29 @@ describe('buildProfile — error cases', () => {
   });
 });
 
+describe('buildProfile — fresh start (ranked feeds only, no chronological global)', () => {
+  // Regression: on a fresh curator with no chain activity, the chronological
+  // 'global' feed isn't created until the first submission, but ranked feeds
+  // are published by the timed refresh. buildProfile must still succeed so
+  // the curator can declare itself.
+  it('omits globalViewFeeds.new and still validates', () => {
+    resetDb();
+    mockGetFeedBzzUrl.mock.mockImplementation((name) => {
+      const feeds = {
+        'hot-global': GLOBAL_FEED_BZZ,
+        'best-global': GLOBAL_FEED_BZZ,
+        'rising-global': GLOBAL_FEED_BZZ,
+        'controversial-global': GLOBAL_FEED_BZZ,
+      };
+      return feeds[name] || null;
+    });
+    const profile = buildProfile();
+    assert.equal(profile.globalIndexFeed, GLOBAL_FEED_BZZ);
+    assert.equal(profile.globalViewFeeds.new, undefined);
+    assert.equal(profile.globalViewFeeds.hot, GLOBAL_FEED_BZZ);
+  });
+});
+
 describe('ensureDeclared — error cases', () => {
   it('throws when profile feed not yet created', async () => {
     resetDb();

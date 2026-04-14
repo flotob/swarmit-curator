@@ -45,7 +45,7 @@ export function buildProfile() {
   }
 
   const globalViewFeeds = {};
-  globalViewFeeds.new = chronologicalGlobalUrl;
+  if (chronologicalGlobalUrl) globalViewFeeds.new = chronologicalGlobalUrl;
   for (const view of RECOMMENDED_RANKED_VIEW_NAMES) {
     const url = getFeedBzzUrl(`${view}-global`);
     if (url) globalViewFeeds[view] = url;
