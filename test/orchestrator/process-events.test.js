@@ -1,7 +1,7 @@
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz, VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3, VALID_ADDRESS } from '../helpers/fixtures.js';
-import { TYPES } from 'swarmit-protocol';
+import { TYPES, slugToBoardId } from 'swarmit-protocol';
 
 setupTestEnv();
 
@@ -66,13 +66,13 @@ function makeSubmissionEvent(ref, opts = {}) {
   };
 }
 
-function makeValidSubmission(boardId = 'general', kind = 'post', overrides = {}) {
+function makeValidSubmission(boardId = slugToBoardId('general'), kind = 'post', overrides = {}) {
   return {
     protocol: TYPES.SUBMISSION,
     boardId,
     kind,
     contentRef: VALID_BZZ_2,
-    author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+    author: { address: VALID_ADDRESS },
     createdAt: Date.now(),
     ...overrides,
   };
@@ -81,7 +81,7 @@ function makeValidSubmission(boardId = 'general', kind = 'post', overrides = {})
 function makeValidPost() {
   return {
     protocol: TYPES.POST,
-    author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+    author: { address: VALID_ADDRESS },
     title: 'Test Post',
     body: { kind: 'markdown', text: 'Hello' },
     createdAt: Date.now(),
@@ -91,7 +91,7 @@ function makeValidPost() {
 function makeValidReply() {
   return {
     protocol: TYPES.REPLY,
-    author: { address: VALID_ADDRESS, userFeed: VALID_BZZ },
+    author: { address: VALID_ADDRESS },
     body: { kind: 'markdown', text: 'Reply' },
     createdAt: Date.now(),
   };
@@ -104,7 +104,7 @@ describe('processEvents', () => {
     resetDb();
     mockFetchEvents.mock.resetCalls();
     mockFetchObject.mock.resetCalls();
-    addBoard('general', { boardId: 'general' });
+    addBoard('general', { boardId: slugToBoardId('general') });
   });
 
   it('new valid post is added to state and returned in changedBoards/changedThreads', async () => {
@@ -209,7 +209,7 @@ describe('processEvents', () => {
 
   it('orphaned reply (parent not in state) goes to retry queue', async () => {
     const ref = 'e'.repeat(64);
-    const submission = makeValidSubmission('general', 'reply', {
+    const submission = makeValidSubmission(slugToBoardId('general'), 'reply', {
       parentSubmissionId: VALID_BZZ_2,
       rootSubmissionId: VALID_BZZ_3,
     });
@@ -265,7 +265,7 @@ describe('processEvents', () => {
     // Put reply in retry queue
     setRetrySubmissions([makeSubmissionEvent(replyRef, { blockNumber: 100 })]);
 
-    const replySubmission = makeValidSubmission('general', 'reply', {
+    const replySubmission = makeValidSubmission(slugToBoardId('general'), 'reply', {
       parentSubmissionId: parentBzz,
       rootSubmissionId: parentBzz,
     });
@@ -299,12 +299,12 @@ describe('processEvents', () => {
   it('submission targeting a board registered in the same batch succeeds', async () => {
     // Board 'new-board' is NOT in the DB — it arrives in the same batch as the submission
     const ref = 'ab'.repeat(32);
-    const submission = makeValidSubmission('new-board');
+    const submission = makeValidSubmission(slugToBoardId('new-board'));
     const post = makeValidPost();
 
     mockFetchEvents.mock.mockImplementation(async () => ({
       ...emptyEvents,
-      boards: [{ slug: 'new-board', boardId: '0xnew', boardRef: 'ref', governance: '0x0' }],
+      boards: [{ slug: 'new-board', boardId: slugToBoardId('new-board'), boardRef: 'ref', governance: '0x0' }],
       submissions: [makeSubmissionEvent(ref)],
     }));
     let n = 0;
@@ -323,9 +323,9 @@ describe('processEvents', () => {
     const replyRef = 'cb'.repeat(32);
     const parentBzz = `bzz://${parentRef}`;
 
-    const parentSubmission = makeValidSubmission('general', 'post');
+    const parentSubmission = makeValidSubmission(slugToBoardId('general'), 'post');
     const parentContent = makeValidPost();
-    const replySubmission = makeValidSubmission('general', 'reply', {
+    const replySubmission = makeValidSubmission(slugToBoardId('general'), 'reply', {
       parentSubmissionId: parentBzz,
       rootSubmissionId: parentBzz,
     });
@@ -363,7 +363,7 @@ describe('processEvents', () => {
     // Put submission in retry queue WITH a timestamp
     setRetrySubmissions([makeSubmissionEvent(ref, { blockNumber: 50, blockTimestampMs: TIMESTAMP })]);
 
-    const submission = makeValidSubmission('general', 'post');
+    const submission = makeValidSubmission(slugToBoardId('general'), 'post');
     const post = makeValidPost();
 
     // Empty new events — only retry queue processed

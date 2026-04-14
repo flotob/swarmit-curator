@@ -13,7 +13,8 @@ function rowToBoard(row) {
   };
 }
 
-export function addBoard(slug, { boardId = slug, boardRef, governance } = {}) {
+export function addBoard(slug, { boardId, boardRef, governance } = {}) {
+  if (!boardId) throw new Error('addBoard: boardId is required (bytes32 hex hash)');
   getDb().prepare(`
     INSERT OR REPLACE INTO boards (slug, board_id, board_ref, governance_json)
     VALUES (?, ?, ?, ?)
@@ -27,11 +28,6 @@ export function getBoard(slug) {
 
 export function getAllBoards() {
   return getDb().prepare('SELECT * FROM boards ORDER BY slug').all().map(rowToBoard);
-}
-
-export function getKnownBoardSlugs() {
-  const rows = getDb().prepare('SELECT slug FROM boards').all();
-  return new Set(rows.map((r) => r.slug));
 }
 
 export function hasBoard(slug) {

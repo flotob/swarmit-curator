@@ -6,7 +6,7 @@ setupTestEnv();
 
 const { initDb, closeDb, resetDb, addBoard, addSubmission } = await import('../../src/indexer/state.js');
 const { buildGlobalIndexFromState } = await import('../../src/indexer/global-indexer.js');
-const { validateGlobalIndex } = await import('swarmit-protocol');
+const { validateGlobalIndex, slugToBoardId } = await import('swarmit-protocol');
 
 before(() => initDb(':memory:'));
 after(() => closeDb());
@@ -21,8 +21,8 @@ describe('buildGlobalIndexFromState', () => {
   });
 
   it('2 boards with posts includes entries from both, sorted newest first', () => {
-    addBoard('board-a', {});
-    addBoard('board-b', {});
+    addBoard('board-a', { boardId: slugToBoardId('board-a') });
+    addBoard('board-b', { boardId: slugToBoardId('board-b') });
     addSubmission(bzz('e1'), { boardId: 'board-a', kind: 'post', blockNumber: 100, logIndex: 0 });
     addSubmission(bzz('e2'), { boardId: 'board-b', kind: 'post', blockNumber: 200, logIndex: 0 });
     addSubmission(bzz('e3'), { boardId: 'board-a', kind: 'post', blockNumber: 150, logIndex: 0 });
@@ -36,15 +36,15 @@ describe('buildGlobalIndexFromState', () => {
   });
 
   it('entries include boardId', () => {
-    addBoard('board-c', {});
+    addBoard('board-c', { boardId: slugToBoardId('board-c') });
     addSubmission(bzz('e4'), { boardId: 'board-c', kind: 'post', blockNumber: 100, logIndex: 0 });
 
     const index = buildGlobalIndexFromState();
-    assert.equal(index.entries[0].boardId, 'board-c');
+    assert.equal(index.entries[0].boardId, slugToBoardId('board-c'));
   });
 
   it('only includes posts, not replies', () => {
-    addBoard('board-d', {});
+    addBoard('board-d', { boardId: slugToBoardId('board-d') });
     addSubmission(bzz('e5'), { boardId: 'board-d', kind: 'post', blockNumber: 100, logIndex: 0 });
     addSubmission(bzz('e6'), {
       boardId: 'board-d', kind: 'reply', blockNumber: 101, logIndex: 0,
@@ -56,7 +56,7 @@ describe('buildGlobalIndexFromState', () => {
   });
 
   it('output passes validateGlobalIndex', () => {
-    addBoard('board-e', {});
+    addBoard('board-e', { boardId: slugToBoardId('board-e') });
     addSubmission(bzz('e7'), { boardId: 'board-e', kind: 'post', blockNumber: 100, logIndex: 0 });
 
     const index = buildGlobalIndexFromState();

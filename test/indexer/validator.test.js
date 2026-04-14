@@ -7,7 +7,7 @@ import {
 } from '../../src/indexer/validator.js';
 import {
   VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3, VALID_HEX,
-  BOARD_SLUGS, validSubmissionPost, validSubmissionReply,
+  KNOWN_BOARD_IDS, validSubmissionPost, validSubmissionReply,
   validPost, validReply,
 } from '../helpers/fixtures.js';
 
@@ -17,14 +17,14 @@ import {
 
 describe('validateIngestedSubmission', () => {
   it('valid submission + known board passes', () => {
-    const result = validateIngestedSubmission(validSubmissionPost(), BOARD_SLUGS);
+    const result = validateIngestedSubmission(validSubmissionPost(), KNOWN_BOARD_IDS);
     assert.equal(result.valid, true);
     assert.deepEqual(result.errors, []);
   });
 
   it('valid submission + unknown board fails with "not registered"', () => {
-    const sub = { ...validSubmissionPost(), boardId: 'nonexistent' };
-    const result = validateIngestedSubmission(sub, BOARD_SLUGS);
+    const sub = { ...validSubmissionPost(), boardId: '0x' + 'f'.repeat(64) };
+    const result = validateIngestedSubmission(sub, KNOWN_BOARD_IDS);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('not registered')));
   });
@@ -32,21 +32,21 @@ describe('validateIngestedSubmission', () => {
   it('missing protocol field fails', () => {
     const sub = { ...validSubmissionPost() };
     delete sub.protocol;
-    const result = validateIngestedSubmission(sub, BOARD_SLUGS);
+    const result = validateIngestedSubmission(sub, KNOWN_BOARD_IDS);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('protocol')));
   });
 
   it('invalid contentRef (bare hex, not bzz://) fails', () => {
     const sub = { ...validSubmissionPost(), contentRef: VALID_HEX };
-    const result = validateIngestedSubmission(sub, BOARD_SLUGS);
+    const result = validateIngestedSubmission(sub, KNOWN_BOARD_IDS);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('contentRef')));
   });
 
   it('missing author.address fails', () => {
     const sub = { ...validSubmissionPost(), author: { userFeed: VALID_BZZ } };
-    const result = validateIngestedSubmission(sub, BOARD_SLUGS);
+    const result = validateIngestedSubmission(sub, KNOWN_BOARD_IDS);
     assert.equal(result.valid, false);
     assert.ok(result.errors.some(e => e.includes('author')));
   });

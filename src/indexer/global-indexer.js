@@ -2,7 +2,7 @@
  * Global indexer — builds globalIndex across all boards in various sort orders.
  */
 
-import { buildGlobalIndex } from 'swarmit-protocol';
+import { buildGlobalIndex, slugToBoardId } from 'swarmit-protocol';
 import { getRootSubmissions, getAllBoards } from './state.js';
 import { byNewest, rankByBest, rankByHot, rankByRising, rankByControversial } from './ranking.js';
 import config from '../config.js';
@@ -23,7 +23,7 @@ export function collectAllPosts() {
 
 function toGlobalEntries(posts) {
   return posts.map((post) => ({
-    boardId: post.boardId,
+    boardId: slugToBoardId(post.boardId),
     submissionId: post.submissionRef,
     submissionRef: post.submissionRef,
   }));

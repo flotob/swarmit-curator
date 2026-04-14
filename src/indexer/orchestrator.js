@@ -10,7 +10,7 @@ import { validateIngestedSubmission, validateIngestedContent, validateReplyConsi
 import {
   getLastProcessedBlock, setLastProcessedBlock, getMeta, setMeta,
   inTransaction,
-  getAllBoards, addBoard, getKnownBoardSlugs, updateBoardMetadata,
+  getAllBoards, addBoard, updateBoardMetadata,
   hasSubmission, addSubmission,
   getRetrySubmissions, setRetrySubmissions,
   applyVoteEvent, insertVoteEvent,
@@ -46,10 +46,11 @@ export async function processEvents(fromBlock, toBlock) {
   const retryQueue = getRetrySubmissions();
   const toProcess = [...events.submissions, ...retryQueue];
 
-  const knownBoardSlugs = getKnownBoardSlugs();
-  // Include boards from this batch so submissions targeting a newly-registered
-  // board in the same block range pass validation.
-  for (const board of events.boards) knownBoardSlugs.add(board.slug);
+  // Submissions carry boardId as bytes32; internal state is slug-keyed, so
+  // we resolve at the ingest boundary.
+  const boardsByBytes32 = new Map();
+  for (const board of getAllBoards()) boardsByBytes32.set(board.boardId, board.slug);
+  for (const board of events.boards) boardsByBytes32.set(board.boardId, board.slug);
 
   // Track refs known to exist: DB state + accepted refs from this batch.
   // This lets replies whose parent is in the same batch pass consistency checks.
@@ -73,7 +74,7 @@ export async function processEvents(fromBlock, toBlock) {
     try {
       const submission = await fetchObject(submissionRef);
 
-      const subResult = validateIngestedSubmission(submission, knownBoardSlugs);
+      const subResult = validateIngestedSubmission(submission, boardsByBytes32);
       if (!subResult.valid) {
         console.warn(`[Ingest] Invalid submission ${bzzRef}: ${subResult.errors.join(', ')}`);
         continue;
@@ -96,10 +97,13 @@ export async function processEvents(fromBlock, toBlock) {
         }
       }
 
+      // Validator guarantees the map contains this boardId.
+      const boardSlug = boardsByBytes32.get(submission.boardId);
+
       const rootRef = submission.rootSubmissionId || bzzRef;
       validatedSubmissions.push({
         bzzRef,
-        boardId: submission.boardId,
+        boardId: boardSlug,
         kind: submission.kind,
         contentRef: submission.contentRef,
         parentSubmissionId: submission.parentSubmissionId || null,
@@ -111,24 +115,13 @@ export async function processEvents(fromBlock, toBlock) {
       });
 
       batchKnownRefs.add(bzzRef);
-      changedBoards.add(submission.boardId);
+      changedBoards.add(boardSlug);
       changedThreads.add(rootRef);
-      console.log(`[Ingest] ${submission.kind}: ${bzzRef} in r/${submission.boardId}`);
+      console.log(`[Ingest] ${submission.kind}: ${bzzRef} in r/${boardSlug}`);
 
     } catch (err) {
       console.warn(`[Ingest] Transient failure for ${bzzRef}, will retry: ${err.message}`);
       stillPending.push(sub);
-    }
-  }
-
-  // Resolve board slugs for vote events (needs current DB state, read-only)
-  const boardsByBytes32 = new Map();
-  if (events.votes.length > 0) {
-    for (const board of getAllBoards()) {
-      boardsByBytes32.set(board.boardId, board.slug);
-    }
-    for (const board of events.boards) {
-      boardsByBytes32.set(board.boardId, board.slug);
     }
   }
 

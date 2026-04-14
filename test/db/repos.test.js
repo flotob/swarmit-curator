@@ -4,7 +4,7 @@ import { initDb, closeDb, resetDb } from '../../src/db/sqlite.js';
 
 // Repos
 import { getMeta, setMeta, getLastProcessedBlock, setLastProcessedBlock, getRepublishGlobal, setRepublishGlobal, getRepublishProfile, setRepublishProfile } from '../../src/db/repos/meta.js';
-import { addBoard, getBoard, getAllBoards, getKnownBoardSlugs, hasBoard, updateBoardRef } from '../../src/db/repos/boards.js';
+import { addBoard, getBoard, getAllBoards, hasBoard, updateBoardRef } from '../../src/db/repos/boards.js';
 import { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../../src/db/repos/submissions.js';
 import { applyVoteEvent, getVotesForSubmission } from '../../src/db/repos/votes.js';
 import { getFeed, setFeed } from '../../src/db/repos/feeds.js';
@@ -82,14 +82,6 @@ describe('boards repo', () => {
     assert.equal(all[0].slug, 'a');
   });
 
-  it('getKnownBoardSlugs returns Set', () => {
-    addBoard('x', { boardId: '1' });
-    addBoard('y', { boardId: '2' });
-    const slugs = getKnownBoardSlugs();
-    assert.ok(slugs instanceof Set);
-    assert.ok(slugs.has('x'));
-    assert.ok(slugs.has('y'));
-  });
 
   it('hasBoard', () => {
     assert.equal(hasBoard('z'), false);

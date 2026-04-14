@@ -1,3 +1,4 @@
+import { slugToBoardId } from 'swarmit-protocol';
 import { describe, it, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3 } from '../helpers/fixtures.js';
@@ -5,7 +6,7 @@ import { VALID_BZZ, VALID_BZZ_2, VALID_BZZ_3 } from '../helpers/fixtures.js';
 import {
   initDb, closeDb, resetDb,
   getLastProcessedBlock, setLastProcessedBlock,
-  addBoard, getAllBoards, getKnownBoardSlugs,
+  addBoard, getAllBoards,
   addSubmission, hasSubmission, getSubmissionsForBoard,
   getRootSubmissions, getRepliesForRoot,
   applyVoteEvent, getVotesForSubmission,
@@ -27,7 +28,7 @@ beforeEach(() => resetDb());
 
 describe('DB lifecycle', () => {
   it('resetDb clears all data', () => {
-    addBoard('test', { boardId: 'test' });
+    addBoard('test', { boardId: slugToBoardId('test') });
     addSubmission(VALID_BZZ, { boardId: 'test', kind: 'post', contentRef: VALID_BZZ_2, author: '0x1', blockNumber: 1, logIndex: 0 });
     setLastProcessedBlock(100);
     resetDb();
@@ -78,14 +79,6 @@ describe('boards facade', () => {
     assert.equal(boards[0].boardId, '0xabc');
   });
 
-  it('getKnownBoardSlugs returns Set', () => {
-    addBoard('a', { boardId: '1' });
-    addBoard('b', { boardId: '2' });
-    const slugs = getKnownBoardSlugs();
-    assert.ok(slugs instanceof Set);
-    assert.ok(slugs.has('a'));
-    assert.ok(slugs.has('b'));
-  });
 });
 
 // =============================================

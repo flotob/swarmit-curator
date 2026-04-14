@@ -1,3 +1,4 @@
+import { slugToBoardId } from 'swarmit-protocol';
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { VALID_ADDRESS } from '../helpers/fixtures.js';
@@ -97,7 +98,7 @@ function setupOneBoardWithFeeds() {
     };
     return feeds[name] || null;
   });
-  addBoard('gen', { boardId: 'gen', slug: 'gen' });
+  addBoard('gen', { boardId: slugToBoardId('gen') });
   mockSendTransaction.mock.resetCalls();
   mockPublishAndUpdateFeed.mock.resetCalls();
   mockGetLogs.mock.resetCalls();
@@ -243,7 +244,7 @@ describe('buildProfile — error cases', () => {
   it('throws when no global feed exists', () => {
     resetDb();
     mockGetFeedBzzUrl.mock.mockImplementation(() => null);
-    addBoard('gen', { boardId: 'gen', slug: 'gen' });
+    addBoard('gen', { boardId: slugToBoardId('gen') });
     assert.throws(() => buildProfile(), /no global feed/);
   });
 });

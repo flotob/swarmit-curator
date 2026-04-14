@@ -1,3 +1,4 @@
+import { slugToBoardId } from 'swarmit-protocol';
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, bzz, VALID_BZZ, VALID_ADDRESS } from '../helpers/fixtures.js';
@@ -66,7 +67,7 @@ describe('publishIndexes', () => {
   });
 
   it('thread feeds published before boardIndex (call order)', async () => {
-    addBoard('board-a', { boardId: 'board-a', slug: 'board-a' });
+    addBoard('board-a', { boardId: slugToBoardId('board-a') });
     addSubmission(bzz('d1'), {
       boardId: 'board-a', kind: 'post', blockNumber: 100, logIndex: 0,
       rootSubmissionId: bzz('d1'),
@@ -86,7 +87,7 @@ describe('publishIndexes', () => {
   });
 
   it('republish queue boards are included', async () => {
-    addBoard('board-b', { boardId: 'board-b', slug: 'board-b' });
+    addBoard('board-b', { boardId: slugToBoardId('board-b') });
     setRepublishBoards(new Set(['board-b']));
 
     await publishIndexes(new Set(), new Set());
@@ -97,8 +98,8 @@ describe('publishIndexes', () => {
   });
 
   it('single board publish failure adds to republishBoards', async () => {
-    addBoard('board-ok', { boardId: 'board-ok', slug: 'board-ok' });
-    addBoard('board-fail', { boardId: 'board-fail', slug: 'board-fail' });
+    addBoard('board-ok', { boardId: slugToBoardId('board-ok') });
+    addBoard('board-fail', { boardId: slugToBoardId('board-fail') });
 
     mockPublishAndUpdateFeed.mock.mockImplementation(async (feedName) => {
       if (feedName === 'board-board-fail') throw new Error('publish failed');
