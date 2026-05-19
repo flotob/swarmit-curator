@@ -80,7 +80,15 @@ Once running, open the Swarmit SPA in Freedom Browser and navigate to a board. T
 | `CURATOR_PRIVATE_KEY` | yes | — | Hex private key for feeds + chain tx |
 | `CURATOR_NAME` | no | `Chronological Curator` | Display name in curator profile |
 | `CURATOR_DESCRIPTION` | no | — | Description in curator profile |
-| `STATE_FILE` | no | `./state.json` | Path to persistent state file |
+| `STATE_DB` | no | `./state.db` | Path to the SQLite state database |
+| `LIVENESS_ENABLED` | no | `true` | Master switch for content liveness pruning |
+| `LIVENESS_CHECK_INTERVAL` | no | `3600` | Seconds between death sweeps (re-check live content) |
+| `LIVENESS_STRIKE_THRESHOLD` | no | `2` | Consecutive failed checks before a post is pruned |
+| `LIVENESS_INGEST_GRACE` | no | `3600` | Seconds after ingestion before a post is first re-checked |
+| `LIVENESS_RECHECK_DEAD` | no | `false` | Whether to re-check already-pruned content for resurrection |
+| `LIVENESS_RECHECK_INTERVAL` | no | `21600` | Seconds between resurrection sweeps (when `LIVENESS_RECHECK_DEAD=true`) |
+| `LIVENESS_RECHECK_GIVEUP_AFTER` | no | `2592000` | Seconds stale before content is abandoned; `0` = never give up |
+| `LIVENESS_BATCH_SIZE` | no | `0` | Max submissions checked per sweep; `0` = all |
 
 ## Architecture
 

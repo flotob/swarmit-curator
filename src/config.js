@@ -42,6 +42,17 @@ const config = {
 
   // Ranked views
   rankedRefreshInterval: parseInt(process.env.RANKED_REFRESH_INTERVAL || '15', 10) * 60 * 1000, // ms
+
+  // Liveness pruning — see docs/liveness-pruning-plan.md.
+  // Intervals are given in seconds in the env and stored here in ms.
+  livenessEnabled: process.env.LIVENESS_ENABLED !== 'false',
+  livenessCheckInterval: parseInt(process.env.LIVENESS_CHECK_INTERVAL || '3600', 10) * 1000,
+  livenessStrikeThreshold: parseInt(process.env.LIVENESS_STRIKE_THRESHOLD || '2', 10),
+  livenessIngestGrace: parseInt(process.env.LIVENESS_INGEST_GRACE || '3600', 10) * 1000,
+  livenessRecheckDead: process.env.LIVENESS_RECHECK_DEAD === 'true',
+  livenessRecheckInterval: parseInt(process.env.LIVENESS_RECHECK_INTERVAL || '21600', 10) * 1000,
+  livenessRecheckGiveUpAfter: parseInt(process.env.LIVENESS_RECHECK_GIVEUP_AFTER || '2592000', 10) * 1000,
+  livenessBatchSize: parseInt(process.env.LIVENESS_BATCH_SIZE || '0', 10),
 };
 
 // Derive curator address from private key
@@ -65,4 +76,8 @@ if (process.argv[1]?.endsWith('config.js')) {
   console.log(`Curator address:  ${config.curatorAddress}`);
   console.log(`Curator name:     ${config.curatorName}`);
   console.log(`State DB:         ${config.stateDb}`);
+  const liveness = config.livenessEnabled
+    ? `on (death sweep ${config.livenessCheckInterval / 1000}s, recheck-dead ${config.livenessRecheckDead})`
+    : 'off';
+  console.log(`Liveness:         ${liveness}`);
 }
