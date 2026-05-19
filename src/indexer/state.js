@@ -15,7 +15,10 @@ export {
 export { addBoard, getAllBoards } from '../db/repos/boards.js';
 export { updateBoardRef as updateBoardMetadata } from '../db/repos/boards.js';
 
-export { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../db/repos/submissions.js';
+export {
+  addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot,
+  getLiveSubmissions, getResurrectionCandidates, setStrikes, markStale, markLive,
+} from '../db/repos/submissions.js';
 
 export { applyVoteEvent, getVotesForSubmission, getVotesBatch } from '../db/repos/votes.js';
 
