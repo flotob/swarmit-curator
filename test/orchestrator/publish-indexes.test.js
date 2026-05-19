@@ -26,6 +26,7 @@ mock.module('../../src/swarm/client.js', {
     publishJSON: mock.fn(async () => 'a'.repeat(64)),
     createFeedManifest: mock.fn(async () => 'b'.repeat(64)),
     updateFeed: mock.fn(async () => {}),
+    isRetrievable: mock.fn(async () => true),
   },
 });
 
