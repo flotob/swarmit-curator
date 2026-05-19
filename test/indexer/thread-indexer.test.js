@@ -4,7 +4,7 @@ import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
-const { initDb, closeDb, resetDb, addSubmission } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addSubmission, markStale } = await import('../../src/indexer/state.js');
 const { buildThreadIndexForRoot } = await import('../../src/indexer/thread-indexer.js');
 const { validateThreadIndex } = await import('swarmit-protocol');
 
@@ -109,6 +109,57 @@ describe('buildThreadIndexForRoot', () => {
     });
 
     const index = buildThreadIndexForRoot({ submissionRef: rootRef });
+    assert.deepEqual(validateThreadIndex(index), []);
+  });
+
+  it('excludes a stale (pruned) reply', () => {
+    const rootRef = bzz('a70000');
+    const liveReply = bzz('a70001');
+    const deadReply = bzz('a70002');
+
+    addSubmission(rootRef, { boardId: 'b', kind: 'post', blockNumber: 1, logIndex: 0 });
+    addSubmission(liveReply, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: rootRef,
+      rootSubmissionId: rootRef, blockNumber: 2, logIndex: 0,
+    });
+    addSubmission(deadReply, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: rootRef,
+      rootSubmissionId: rootRef, blockNumber: 3, logIndex: 0,
+    });
+    markStale(deadReply, Date.now());
+
+    const index = buildThreadIndexForRoot({ submissionRef: rootRef });
+    assert.deepEqual(index.nodes.map((n) => n.submissionId), [rootRef, liveReply]);
+  });
+
+  it('drops the orphaned subtree below a pruned reply', () => {
+    const rootRef = bzz('a80000');
+    const midReply = bzz('a80001');    // child of root — pruned
+    const childReply = bzz('a80002');  // child of midReply — orphaned
+    const grandchild = bzz('a80003');  // child of childReply — orphaned
+    const sibling = bzz('a80004');     // child of root — survives
+
+    addSubmission(rootRef, { boardId: 'b', kind: 'post', blockNumber: 1, logIndex: 0 });
+    addSubmission(midReply, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: rootRef,
+      rootSubmissionId: rootRef, blockNumber: 2, logIndex: 0,
+    });
+    addSubmission(childReply, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: midReply,
+      rootSubmissionId: rootRef, blockNumber: 3, logIndex: 0,
+    });
+    addSubmission(grandchild, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: childReply,
+      rootSubmissionId: rootRef, blockNumber: 4, logIndex: 0,
+    });
+    addSubmission(sibling, {
+      boardId: 'b', kind: 'reply', parentSubmissionId: rootRef,
+      rootSubmissionId: rootRef, blockNumber: 5, logIndex: 0,
+    });
+    markStale(midReply, Date.now());
+
+    const index = buildThreadIndexForRoot({ submissionRef: rootRef });
+    assert.deepEqual(index.nodes.map((n) => n.submissionId), [rootRef, sibling]);
     assert.deepEqual(validateThreadIndex(index), []);
   });
 });

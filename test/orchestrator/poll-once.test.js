@@ -15,6 +15,7 @@ const mockClearCache = mock.fn();
 const mockPublishAndUpdateFeed = mock.fn(async () => 'c'.repeat(64));
 const mockNeedsProfileUpdate = mock.fn(() => false);
 const mockPublishAndDeclare = mock.fn(async () => {});
+const mockIsRetrievable = mock.fn(async () => true);
 
 mock.module('../../src/chain/reader.js', {
   namedExports: {
@@ -30,6 +31,7 @@ mock.module('../../src/swarm/client.js', {
     publishJSON: mock.fn(async () => 'a'.repeat(64)),
     createFeedManifest: mock.fn(async () => 'b'.repeat(64)),
     updateFeed: mock.fn(async () => {}),
+    isRetrievable: mockIsRetrievable,
   },
 });
 
@@ -58,6 +60,7 @@ const {
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile,
   getMeta,
+  setStrikes, getSubmissionsForBoard,
 } = await import('../../src/indexer/state.js');
 
 import { before, after } from 'node:test';
@@ -76,6 +79,8 @@ function resetAll() {
   mockClearCache.mock.resetCalls();
   mockPublishAndUpdateFeed.mock.resetCalls();
   mockPublishAndDeclare.mock.resetCalls();
+  mockIsRetrievable.mock.resetCalls();
+  mockIsRetrievable.mock.mockImplementation(async () => true);
 
   mockFetchEvents.mock.mockImplementation(async () => emptyEvents);
   mockFetchObject.mock.mockImplementation(async () => ({}));
@@ -276,6 +281,52 @@ describe('pollOnce', () => {
     const lastRefresh = getMeta('last_ranked_refresh_at');
     assert.ok(lastRefresh, 'last_ranked_refresh_at should be set after event-driven ranked publish');
     assert.ok(parseInt(lastRefresh, 10) > 0);
+  });
+
+  it('runs the death sweep on a non-idle poll', async () => {
+    setLastProcessedBlock(49);
+    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
+
+    await pollOnce();
+
+    assert.ok(getMeta('last_death_sweep_at'), 'death sweep should have run and recorded its time');
+  });
+
+  it('does not run the resurrection sweep when LIVENESS_RECHECK_DEAD is off', async () => {
+    setLastProcessedBlock(49);
+    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
+
+    await pollOnce();
+
+    assert.equal(getMeta('last_resurrection_sweep_at'), null);
+  });
+
+  it('a sweep-pruned board flows through to a feed republish', async () => {
+    setLastProcessedBlock(49);
+    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
+    mockIsRetrievable.mock.mockImplementation(async () => false);
+
+    // A post past the ingest grace, pre-loaded with one strike — the next
+    // probe (failing) crosses the default threshold of 2 → death sweep prunes.
+    addBoard('tech', { boardId: slugToBoardId('tech') });
+    const ref = bzz('aa');
+    addSubmission(ref, {
+      boardId: 'tech', kind: 'post',
+      contentRef: bzz('bb'),
+      blockNumber: 10, logIndex: 0,
+      ingestedAt: Date.now() - 10 * 60 * 60 * 1000, // 10h ago — past 1h grace
+    });
+    setStrikes(ref, 1);
+
+    await pollOnce();
+
+    const [entry] = getSubmissionsForBoard('tech');
+    assert.equal(entry.unreachableStrikes, 2);
+    assert.ok(entry.staleSince > 0, 'post should be marked stale');
+    assert.ok(
+      mockPublishAndUpdateFeed.mock.calls.some((c) => c.arguments[0] === 'board-tech'),
+      'board-tech feed should have been republished',
+    );
   });
 
   it('MAX_BLOCKS_PER_POLL caps toBlock', async () => {

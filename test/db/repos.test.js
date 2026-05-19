@@ -5,7 +5,10 @@ import { initDb, closeDb, resetDb } from '../../src/db/sqlite.js';
 // Repos
 import { getMeta, setMeta, getLastProcessedBlock, setLastProcessedBlock, getRepublishGlobal, setRepublishGlobal, getRepublishProfile, setRepublishProfile } from '../../src/db/repos/meta.js';
 import { addBoard, getBoard, getAllBoards, hasBoard, updateBoardRef } from '../../src/db/repos/boards.js';
-import { addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot } from '../../src/db/repos/submissions.js';
+import {
+  addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot,
+  getLiveSubmissions, getResurrectionCandidates, setStrikes, markStale, markLive,
+} from '../../src/db/repos/submissions.js';
 import { applyVoteEvent, getVotesForSubmission } from '../../src/db/repos/votes.js';
 import { getFeed, setFeed } from '../../src/db/repos/feeds.js';
 import { getPublishedKeys, setPublishedKeys, hasPublishedKey } from '../../src/db/repos/published.js';
@@ -184,6 +187,95 @@ describe('submissions repo', () => {
     assert.equal(entry.author, '0xaddr');
     assert.equal(entry.blockNumber, 100);
     assert.equal(entry.logIndex, 0);
+  });
+});
+
+// =============================================
+// Submissions — liveness state
+// =============================================
+
+describe('submissions liveness', () => {
+  it('addSubmission records ingested_at, defaulting to now', () => {
+    const before = Date.now();
+    addSubmission('bzz://self', SUB_A);
+    assert.ok(getSubmissionsForBoard('general')[0].ingestedAt >= before);
+  });
+
+  it('addSubmission accepts an explicit ingestedAt', () => {
+    addSubmission('bzz://self', { ...SUB_A, ingestedAt: 12345 });
+    assert.equal(getSubmissionsForBoard('general')[0].ingestedAt, 12345);
+  });
+
+  it('new submissions start live — no strikes, not stale', () => {
+    addSubmission('bzz://self', SUB_A);
+    const [entry] = getSubmissionsForBoard('general');
+    assert.equal(entry.unreachableStrikes, 0);
+    assert.equal(entry.staleSince, null);
+  });
+
+  it('setStrikes updates the strike counter', () => {
+    addSubmission('bzz://self', SUB_A);
+    setStrikes('bzz://self', 2);
+    assert.equal(getSubmissionsForBoard('general')[0].unreachableStrikes, 2);
+  });
+
+  it('markStale sets stale_since; markLive clears strikes and stale_since', () => {
+    addSubmission('bzz://self', SUB_A);
+    setStrikes('bzz://self', 2);
+    markStale('bzz://self', 5000);
+    assert.equal(getSubmissionsForBoard('general')[0].staleSince, 5000);
+
+    markLive('bzz://self');
+    const [entry] = getSubmissionsForBoard('general');
+    assert.equal(entry.staleSince, null);
+    assert.equal(entry.unreachableStrikes, 0);
+  });
+
+  it('liveOnly excludes stale posts, replies, and board rows', () => {
+    addSubmission('bzz://self', SUB_A);     // post,  root 'bzz://self'
+    addSubmission('bzz://reply', SUB_B);    // reply, root 'bzz://self'
+    markStale('bzz://reply', Date.now());
+
+    assert.equal(getRepliesForRoot('bzz://self').length, 1);
+    assert.equal(getRepliesForRoot('bzz://self', true).length, 0);
+    assert.equal(getSubmissionsForBoard('general', true).length, 1);
+
+    markStale('bzz://self', Date.now());
+    assert.equal(getRootSubmissions('general').length, 1);
+    assert.equal(getRootSubmissions('general', true).length, 0);
+  });
+
+  it('getLiveSubmissions returns live rows ingested at or before the cutoff', () => {
+    addSubmission('bzz://old', { ...SUB_A, ingestedAt: 1000 });
+    addSubmission('bzz://fresh', { ...SUB_A, ingestedAt: 9000 });
+    addSubmission('bzz://dead', { ...SUB_A, ingestedAt: 1000 });
+    markStale('bzz://dead', Date.now());
+
+    const live = getLiveSubmissions(5000); // between old (1000) and fresh (9000)
+    assert.deepEqual(live.map((e) => e.submissionRef), ['bzz://old']);
+  });
+
+  it('getResurrectionCandidates returns only stale rows and honors the give-up cutoff', () => {
+    addSubmission('bzz://live', SUB_A);
+    addSubmission('bzz://recent', SUB_A);
+    addSubmission('bzz://abandoned', SUB_A);
+    markStale('bzz://recent', 8000);
+    markStale('bzz://abandoned', 2000);
+
+    // cutoff 0 → never give up → both stale rows
+    assert.equal(getResurrectionCandidates(0).length, 2);
+    // cutoff 5000 → drop rows stale at/before 5000 → only 'recent'
+    assert.deepEqual(
+      getResurrectionCandidates(5000).map((e) => e.submissionRef),
+      ['bzz://recent'],
+    );
+
+    // a resurrected row drops out of the candidate set
+    markLive('bzz://recent');
+    assert.deepEqual(
+      getResurrectionCandidates(0).map((e) => e.submissionRef),
+      ['bzz://abandoned'],
+    );
   });
 });
 

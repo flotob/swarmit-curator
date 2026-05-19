@@ -30,7 +30,8 @@ function buildIndex(boardSlug, posts) {
  * to avoid redundant DB queries.
  */
 export function getPostsForBoard(boardSlug) {
-  return getRootSubmissions(boardSlug);
+  // liveOnly: pruned (unretrievable) posts must not appear in published feeds.
+  return getRootSubmissions(boardSlug, true);
 }
 
 export function buildBoardIndexForBoard(boardSlug, posts) {

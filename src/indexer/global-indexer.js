@@ -14,7 +14,8 @@ import config from '../config.js';
 export function collectAllPosts() {
   const allPosts = [];
   for (const { slug } of getAllBoards()) {
-    for (const post of getRootSubmissions(slug)) {
+    // liveOnly: pruned (unretrievable) posts must not appear in published feeds.
+    for (const post of getRootSubmissions(slug, true)) {
       allPosts.push({ ...post, boardId: slug });
     }
   }

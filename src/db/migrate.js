@@ -27,7 +27,10 @@ const SCHEMA = `
     author                TEXT NOT NULL,
     block_number          INTEGER NOT NULL,
     log_index             INTEGER NOT NULL,
-    announced_at_ms       INTEGER
+    announced_at_ms       INTEGER,
+    unreachable_strikes   INTEGER NOT NULL DEFAULT 0,
+    stale_since           INTEGER,
+    ingested_at           INTEGER NOT NULL DEFAULT 0
   );
 
   CREATE INDEX IF NOT EXISTS idx_submissions_board ON submissions (
@@ -85,9 +88,27 @@ const SCHEMA = `
 `;
 
 /**
+ * Add a column to an existing table if it is not already present.
+ * SQLite has no `ADD COLUMN IF NOT EXISTS`, so the column list is checked first.
+ */
+function addColumnIfMissing(db, table, column, definition) {
+  const present = db.prepare(`PRAGMA table_info(${table})`).all()
+    .some((col) => col.name === column);
+  if (!present) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+/**
  * Run schema creation on the given database.
  * @param {import('better-sqlite3').Database} db
  */
 export function migrate(db) {
   db.exec(SCHEMA);
+
+  // Liveness-pruning columns — added to submissions tables created before them.
+  // Fresh DBs already have them via SCHEMA; these ALTERs are then no-ops.
+  addColumnIfMissing(db, 'submissions', 'unreachable_strikes', 'INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing(db, 'submissions', 'stale_since', 'INTEGER');
+  addColumnIfMissing(db, 'submissions', 'ingested_at', 'INTEGER NOT NULL DEFAULT 0');
 }
