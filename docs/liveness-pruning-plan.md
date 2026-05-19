@@ -522,6 +522,11 @@ fixtures in `test/helpers/`):
 - **Incremental sweeps** — at scale, checking every submission every sweep is
   `O(N)` network probes. Add a per-row `last_checked_at` and a round-robin cursor
   so each sweep checks the `LIVENESS_BATCH_SIZE` least-recently-checked rows.
+- **Bounded probe concurrency** — the sweeps probe submissions sequentially
+  today (simple, and it naturally rate-limits the Bee node). The companion to
+  the incremental work is a small worker pool — **never** an unbounded
+  `Promise.all`, which would flood the Bee node with simultaneous retrievals
+  and turn into self-inflicted timeouts the sweep misreads as strikes.
 - **Metrics / observability** — expose live/stale/abandoned counts per board
   (e.g. via the dashboard, which already reads the curator SQLite DB).
 - **Protocol-level liveness** — if the protocol recorded the postage batch ID
