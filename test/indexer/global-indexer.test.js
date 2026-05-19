@@ -4,7 +4,7 @@ import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
-const { initDb, closeDb, resetDb, addBoard, addSubmission } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addBoard, addSubmission, markStale } = await import('../../src/indexer/state.js');
 const { buildGlobalIndexFromState } = await import('../../src/indexer/global-indexer.js');
 const { validateGlobalIndex, slugToBoardId } = await import('swarmit-protocol');
 
@@ -54,6 +54,18 @@ describe('buildGlobalIndexFromState', () => {
 
     const index = buildGlobalIndexFromState();
     assert.equal(index.entries.length, 1);
+  });
+
+  it('excludes stale (pruned) posts across all boards', () => {
+    addBoard('board-f', { boardId: slugToBoardId('board-f') });
+    const live = bzz('e8');
+    const dead = bzz('e9');
+    addSubmission(live, { boardId: 'board-f', kind: 'post', blockNumber: 100, logIndex: 0 });
+    addSubmission(dead, { boardId: 'board-f', kind: 'post', blockNumber: 101, logIndex: 0 });
+    markStale(dead, Date.now());
+
+    const index = buildGlobalIndexFromState();
+    assert.deepEqual(index.entries.map((e) => e.submissionId), [live]);
   });
 
   it('output passes validateGlobalIndex', () => {

@@ -4,7 +4,7 @@ import { setupTestEnv, bzz } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
-const { initDb, closeDb, resetDb, addBoard, addSubmission, setFeed } = await import('../../src/indexer/state.js');
+const { initDb, closeDb, resetDb, addBoard, addSubmission, setFeed, markStale } = await import('../../src/indexer/state.js');
 const { buildBoardIndexForBoard } = await import('../../src/indexer/board-indexer.js');
 const { validateBoardIndex, slugToBoardId } = await import('swarmit-protocol');
 
@@ -77,6 +77,18 @@ describe('buildBoardIndexForBoard', () => {
 
     const index = buildBoardIndexForBoard('nofeed-board');
     assert.equal(index.entries[0].threadIndexFeed, undefined);
+  });
+
+  it('excludes stale (pruned) posts', () => {
+    addBoard('prune-board', { boardId: slugToBoardId('prune-board') });
+    const live = bzz('55');
+    const dead = bzz('56');
+    addSubmission(live, { boardId: 'prune-board', kind: 'post', blockNumber: 100, logIndex: 0 });
+    addSubmission(dead, { boardId: 'prune-board', kind: 'post', blockNumber: 101, logIndex: 0 });
+    markStale(dead, Date.now());
+
+    const index = buildBoardIndexForBoard('prune-board');
+    assert.deepEqual(index.entries.map((e) => e.submissionId), [live]);
   });
 
   it('output passes validateBoardIndex', () => {
