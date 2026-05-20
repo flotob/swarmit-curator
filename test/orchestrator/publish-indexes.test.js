@@ -1,7 +1,7 @@
 import { slugToBoardId } from 'swarmit-protocol';
 import { describe, it, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { setupTestEnv, bzz, VALID_BZZ, VALID_ADDRESS } from '../helpers/fixtures.js';
+import { setupTestEnv, bzz, VALID_BZZ, VALID_ADDRESS, trackConcurrency } from '../helpers/fixtures.js';
 
 setupTestEnv();
 
@@ -118,6 +118,39 @@ describe('publishIndexes', () => {
 
     assert.equal(mockPublishAndUpdateFeed.mock.callCount(), 0);
   });
+
+  it('publishes default board feeds in parallel (board + hot-board)', async () => {
+    addBoard('board-par', { boardId: slugToBoardId('board-par') });
+    addSubmission(bzz('p1'), {
+      boardId: 'board-par', kind: 'post', blockNumber: 100, logIndex: 0,
+      rootSubmissionId: bzz('p1'),
+    });
+
+    const tracker = trackConcurrency(mockPublishAndUpdateFeed);
+    await publishIndexes(new Set(['board-par']), new Set([bzz('p1')]));
+
+    // Phase 2 (board-board-par + hot-board-board-par) must run concurrently.
+    assert.ok(tracker.max >= 2, `expected concurrent publishes; observed max in-flight = ${tracker.max}`);
+  });
+
+  it('publishes only default feeds (board + hot-board), not best/rising/controversial', async () => {
+    addBoard('board-d', { boardId: slugToBoardId('board-d') });
+    addSubmission(bzz('d2'), {
+      boardId: 'board-d', kind: 'post', blockNumber: 100, logIndex: 0,
+      rootSubmissionId: bzz('d2'),
+    });
+
+    await publishIndexes(new Set(['board-d']), new Set([bzz('d2')]));
+
+    const feedNames = mockPublishAndUpdateFeed.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(feedNames.some((n) => n.startsWith('thread-')), 'thread feed must publish');
+    assert.ok(feedNames.includes('board-board-d'), 'chronological board feed must publish');
+    assert.ok(feedNames.includes('hot-board-board-d'), 'default (hot) board feed must publish');
+    // The non-default ranked variants are deferred to publishRankedRefresh.
+    assert.ok(!feedNames.some((n) => n.startsWith('best-board-')), 'best-board must NOT publish on event');
+    assert.ok(!feedNames.some((n) => n.startsWith('rising-board-')), 'rising-board must NOT publish on event');
+    assert.ok(!feedNames.some((n) => n.startsWith('controversial-board-')), 'controversial-board must NOT publish on event');
+  });
 });
 
 // --- Tests: publishGlobalAndProfile ---
@@ -182,5 +215,27 @@ describe('publishGlobalAndProfile', () => {
 
     assert.equal(getRepublishGlobal(), true);   // global still pending
     assert.equal(getRepublishProfile(), false);  // profile succeeded
+  });
+
+  it('publishes default global feeds in parallel (global + hot-global)', async () => {
+    setRepublishGlobal(true);
+
+    const tracker = trackConcurrency(mockPublishAndUpdateFeed);
+    await publishGlobalAndProfile();
+
+    assert.ok(tracker.max >= 2, `expected concurrent publishes; observed max in-flight = ${tracker.max}`);
+  });
+
+  it('publishes only default global feeds (global + hot-global), not best/rising/controversial', async () => {
+    setRepublishGlobal(true);
+
+    await publishGlobalAndProfile();
+
+    const feedNames = mockPublishAndUpdateFeed.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(feedNames.includes('global'), 'chronological global feed must publish');
+    assert.ok(feedNames.includes('hot-global'), 'default (hot) global feed must publish');
+    assert.ok(!feedNames.includes('best-global'), 'best-global must NOT publish on event');
+    assert.ok(!feedNames.includes('rising-global'), 'rising-global must NOT publish on event');
+    assert.ok(!feedNames.includes('controversial-global'), 'controversial-global must NOT publish on event');
   });
 });

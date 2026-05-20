@@ -59,7 +59,7 @@ const {
   setRepublishBoards, getRepublishBoards,
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile,
-  getMeta,
+  getMeta, setMeta,
   setStrikes, getSubmissionsForBoard,
 } = await import('../../src/indexer/state.js');
 
@@ -245,12 +245,16 @@ describe('pollOnce', () => {
     assert.ok(getRepublishBoards().has('general'));
   });
 
-  it('normal event-driven publish updates last_ranked_refresh_at, preventing immediate timed refresh', async () => {
+  it('event-driven publish does NOT bump last_ranked_refresh_at (timer-only writer)', async () => {
     setLastProcessedBlock(99);
     mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
     addBoard('general', { boardId: slugToBoardId('general') });
 
-    // A submission arrives → triggers event-driven publish with ranked feeds
+    // Park the ranked timer in the recent past so the timed refresh does NOT
+    // fire — this test isolates the event-driven path from the timer one.
+    const PARKED = String(Date.now());
+    setMeta('last_ranked_refresh_at', PARKED);
+
     const ref = 'e1'.repeat(32);
     mockFetchEvents.mock.mockImplementation(async () => ({
       ...emptyEvents,
@@ -277,10 +281,46 @@ describe('pollOnce', () => {
 
     await pollOnce();
 
-    // last_ranked_refresh_at should be set by the event-driven publish
-    const lastRefresh = getMeta('last_ranked_refresh_at');
-    assert.ok(lastRefresh, 'last_ranked_refresh_at should be set after event-driven ranked publish');
-    assert.ok(parseInt(lastRefresh, 10) > 0);
+    // Event-driven publish must not have written the timer key; it's unchanged.
+    assert.equal(getMeta('last_ranked_refresh_at'), PARKED);
+  });
+
+  it('publishRankedRefresh still fires when its timer is due, even with event-driven changes', async () => {
+    setLastProcessedBlock(99);
+    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
+    addBoard('general', { boardId: slugToBoardId('general') });
+
+    // Timer is due (last_ranked_refresh_at unset → treated as 0).
+    const ref = 'e2'.repeat(32);
+    mockFetchEvents.mock.mockImplementation(async () => ({
+      ...emptyEvents,
+      submissions: [{ submissionRef: ref, author: VALID_ADDRESS, blockNumber: 100, logIndex: 0 }],
+    }));
+    const submission = {
+      protocol: TYPES.SUBMISSION,
+      boardId: slugToBoardId('general'), kind: 'post',
+      contentRef: VALID_BZZ_2,
+      author: { address: VALID_ADDRESS },
+      createdAt: Date.now(),
+    };
+    const post = {
+      protocol: TYPES.POST,
+      author: { address: VALID_ADDRESS },
+      title: 'T', body: { kind: 'markdown', text: 'x' },
+      createdAt: Date.now(),
+    };
+    let n = 0;
+    mockFetchObject.mock.mockImplementation(async () => {
+      n++;
+      return n === 1 ? submission : post;
+    });
+
+    await pollOnce();
+
+    // The timed refresh fired despite event-driven changes — that's the WP3
+    // regression fix: don't let a busy poll starve best/rising/controversial.
+    const lastRefresh = parseInt(getMeta('last_ranked_refresh_at') || '0', 10);
+    assert.ok(lastRefresh > 0, 'publishRankedRefresh should fire when timer is due even with event-driven changes');
   });
 
   it('runs the death sweep on a non-idle poll', async () => {

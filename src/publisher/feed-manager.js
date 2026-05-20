@@ -2,9 +2,23 @@
  * Feed manager — creates and updates Swarm feeds for board/thread/global indexes.
  */
 
+import { createHash } from 'node:crypto';
 import { createFeedManifest, updateFeed as updateSwarmFeed, publishJSON } from '../swarm/client.js';
 import { hexToBzz, validate } from 'swarmit-protocol';
-import { getFeed, setFeed } from '../indexer/state.js';
+import { getFeed, setFeed, getMeta, setMeta, inTransaction } from '../indexer/state.js';
+
+/**
+ * SHA-256 of the index object's JSON, excluding the volatile `updatedAt` field.
+ * Same content (regardless of when it was rebuilt) hashes the same — that's what
+ * makes the no-change skip work on timer-driven refreshes.
+ *
+ * Relies on the protocol-object builders (boardIndex, threadIndex, etc.) emitting
+ * keys in a stable order — they do, because each is a literal-key constructor.
+ */
+function contentHash(indexObj) {
+  const { updatedAt: _ignored, ...stable } = indexObj;
+  return createHash('sha256').update(JSON.stringify(stable)).digest('hex');
+}
 
 /**
  * Ensure a feed exists for a given name. Returns the manifest reference.
@@ -37,9 +51,28 @@ export async function publishAndUpdateFeed(feedName, indexObj, label) {
     throw new Error(`${label} validation failed: ${result.errors.join(', ')}`);
   }
 
+  // No-change skip: most timer-driven refreshes rebuild an index that is byte-
+  // identical (modulo `updatedAt`) to the last one we published. Both the data
+  // chunk and the feed-update SOC would be wasted writes — and on a finite-
+  // capacity postage batch they're an actively bad idea.
+  const hashKey = `last_published_hash:${feedName}`;
+  const refKey = `last_published_ref:${feedName}`;
+  const hash = contentHash(indexObj);
+  if (hash === getMeta(hashKey)) {
+    return getMeta(refKey);
+  }
+
   const contentRef = await publishJSON(indexObj);
   await ensureFeed(feedName);
   await updateSwarmFeed(feedName, contentRef);
+  // Persist AFTER the feed update succeeds — a failed updateFeed leaves the
+  // stored hash unchanged so the next attempt retries the write. The pair is
+  // atomic so a crash between them can't leave the skip path returning a stale
+  // ref for an up-to-date hash.
+  inTransaction(() => {
+    setMeta(hashKey, hash);
+    setMeta(refKey, contentRef);
+  });
   console.log(`[Feeds] Updated "${feedName}" → ${contentRef} (${label})`);
   return contentRef;
 }

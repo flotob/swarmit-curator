@@ -71,6 +71,7 @@ Once running, open the Swarmit SPA in Freedom Browser and navigate to a board. T
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `RPC_URL` | yes | — | Gnosis Chain RPC endpoint |
+| `WSS_RPC_URL` | no | (none) | Optional Gnosis WSS RPC (e.g. `wss://gnosis.drpc.org`) for instant event wake-ups. HTTP `RPC_URL` still does the actual queries. |
 | `CONTRACT_ADDRESS` | yes | — | SwarmitRegistry contract address |
 | `CONTRACT_DEPLOY_BLOCK` | yes | — | Block number the contract was deployed at |
 | `CONFIRMATIONS` | no | `12` | Blocks behind latest to process (reorg safety) |

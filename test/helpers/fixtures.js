@@ -128,6 +128,29 @@ export const chainEvent = (blockNumber, logIndex = 0) => ({
 // --- Helper to generate unique bzz refs ---
 export const bzz = (hex) => `bzz://${hex.padEnd(64, '0')}`;
 
+// --- Concurrency tracker for mocks ---
+
+/**
+ * Instrument a mock so it records the peak number of in-flight calls. The
+ * mock impl awaits `delayMs` between increment and decrement so callers
+ * actually overlap when run with Promise.all / Promise.allSettled.
+ *
+ * @param {ReturnType<import('node:test')['mock']['fn']>} mockFn
+ * @returns {{inFlight: number, max: number}} live view; read `.max` after the
+ *   operation under test settles.
+ */
+export function trackConcurrency(mockFn, { delayMs = 5, returnValue = 'c'.repeat(64) } = {}) {
+  const state = { inFlight: 0, max: 0 };
+  mockFn.mock.mockImplementation(async () => {
+    state.inFlight += 1;
+    state.max = Math.max(state.max, state.inFlight);
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    state.inFlight -= 1;
+    return returnValue;
+  });
+  return state;
+}
+
 // --- Test environment setup for modules that depend on config.js ---
 export function setupTestEnv() {
   process.env.RPC_URL = 'http://localhost:8545';

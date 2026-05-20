@@ -23,6 +23,8 @@ if (missing.length > 0) {
 const config = {
   // Chain
   rpcUrl: process.env.RPC_URL,
+  // Optional WSS RPC for instant event wake-ups (see .env.example, src/chain/subscribe.js).
+  wssRpcUrl: process.env.WSS_RPC_URL || '',
   contractAddress: process.env.CONTRACT_ADDRESS,
   contractDeployBlock: parseInt(process.env.CONTRACT_DEPLOY_BLOCK, 10),
   confirmations: parseInt(process.env.CONFIRMATIONS || '12', 10),
