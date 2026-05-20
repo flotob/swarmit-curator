@@ -11,6 +11,7 @@ import {
   getRepublishGlobal, getRepublishProfile,
 } from './indexer/state.js';
 import { pollOnce, hasPendingWork } from './indexer/orchestrator.js';
+import { startEventSubscription, stopEventSubscription, sleepInterruptible } from './chain/subscribe.js';
 
 let running = true;
 
@@ -19,6 +20,7 @@ async function runLoop() {
   console.log(`[Curator] Bee: ${config.beeUrl}, Contract: ${config.contractAddress}`);
 
   initDb(config.stateDb);
+  startEventSubscription();
 
   // Seed initial block cursor if DB is fresh
   const currentBlock = getLastProcessedBlock();
@@ -36,20 +38,17 @@ async function runLoop() {
     try {
       const result = await pollOnce();
       if (result.idle) {
-        await sleep(config.pollInterval);
+        await sleepInterruptible(config.pollInterval);
       }
     } catch (err) {
       console.error(`[Curator] Loop error: ${err.message}`);
-      await sleep(config.pollInterval);
+      await sleepInterruptible(config.pollInterval);
     }
   }
 
   console.log('[Curator] Shutting down...');
+  await stopEventSubscription();
   closeDb();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 process.on('SIGINT', () => { running = false; });
