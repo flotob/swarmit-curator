@@ -118,6 +118,25 @@ describe('publishIndexes', () => {
 
     assert.equal(mockPublishAndUpdateFeed.mock.callCount(), 0);
   });
+
+  it('publishes only default feeds (board + hot-board), not best/rising/controversial', async () => {
+    addBoard('board-d', { boardId: slugToBoardId('board-d') });
+    addSubmission(bzz('d2'), {
+      boardId: 'board-d', kind: 'post', blockNumber: 100, logIndex: 0,
+      rootSubmissionId: bzz('d2'),
+    });
+
+    await publishIndexes(new Set(['board-d']), new Set([bzz('d2')]));
+
+    const feedNames = mockPublishAndUpdateFeed.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(feedNames.some((n) => n.startsWith('thread-')), 'thread feed must publish');
+    assert.ok(feedNames.includes('board-board-d'), 'chronological board feed must publish');
+    assert.ok(feedNames.includes('hot-board-board-d'), 'default (hot) board feed must publish');
+    // The non-default ranked variants are deferred to publishRankedRefresh.
+    assert.ok(!feedNames.some((n) => n.startsWith('best-board-')), 'best-board must NOT publish on event');
+    assert.ok(!feedNames.some((n) => n.startsWith('rising-board-')), 'rising-board must NOT publish on event');
+    assert.ok(!feedNames.some((n) => n.startsWith('controversial-board-')), 'controversial-board must NOT publish on event');
+  });
 });
 
 // --- Tests: publishGlobalAndProfile ---
@@ -182,5 +201,18 @@ describe('publishGlobalAndProfile', () => {
 
     assert.equal(getRepublishGlobal(), true);   // global still pending
     assert.equal(getRepublishProfile(), false);  // profile succeeded
+  });
+
+  it('publishes only default global feeds (global + hot-global), not best/rising/controversial', async () => {
+    setRepublishGlobal(true);
+
+    await publishGlobalAndProfile();
+
+    const feedNames = mockPublishAndUpdateFeed.mock.calls.map((c) => c.arguments[0]);
+    assert.ok(feedNames.includes('global'), 'chronological global feed must publish');
+    assert.ok(feedNames.includes('hot-global'), 'default (hot) global feed must publish');
+    assert.ok(!feedNames.includes('best-global'), 'best-global must NOT publish on event');
+    assert.ok(!feedNames.includes('rising-global'), 'rising-global must NOT publish on event');
+    assert.ok(!feedNames.includes('controversial-global'), 'controversial-global must NOT publish on event');
   });
 });

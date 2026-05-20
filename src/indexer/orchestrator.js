@@ -197,8 +197,12 @@ export async function publishIndexes(changedBoards, changedThreads) {
     // Fetch posts once for all views of this board
     const posts = getPostsForBoard(boardSlug);
 
-    // Publish thread feeds FIRST so threadIndexFeed is available for boardIndex
+    // Event-driven publish covers only the default feeds the SPA shows on
+    // landing — chronological + hot. The other ranked variants (best, rising,
+    // controversial) are refreshed by publishRankedRefresh on its timer, gated
+    // by the no-change skip in publishAndUpdateFeed.
     try {
+      // Thread feeds first so threadIndexFeed is available for boardIndex.
       for (const root of posts) {
         if (changedThreads.has(root.submissionRef) || republishBoards.has(boardSlug)) {
           const threadIndex = buildThreadIndexForRoot(root);
@@ -207,34 +211,14 @@ export async function publishIndexes(changedBoards, changedThreads) {
       }
 
       await publishAndUpdateFeed(`board-${boardSlug}`, buildBoardIndexForBoard(boardSlug, posts), `boardIndex for r/${boardSlug}`);
+      await publishAndUpdateFeed(`hot-board-${boardSlug}`, buildHotBoardIndex(boardSlug, posts), `hot-board for r/${boardSlug}`);
     } catch (err) {
-      console.error(`[Publish] Failed default feed for r/${boardSlug}: ${err.message}`);
+      console.error(`[Publish] Failed default feeds for r/${boardSlug}: ${err.message}`);
       failedBoards.add(boardSlug);
-      continue; // skip ranked feeds if Swarm is down for this board
-    }
-
-    // All ranked board feeds (reuse fetched posts)
-    for (const [prefix, build] of [
-      ['best-board', () => buildBestBoardIndex(boardSlug, posts)],
-      ['hot-board', () => buildHotBoardIndex(boardSlug, posts)],
-      ['rising-board', () => buildRisingBoardIndex(boardSlug, posts)],
-      ['controversial-board', () => buildControversialBoardIndex(boardSlug, posts)],
-    ]) {
-      try {
-        await publishAndUpdateFeed(`${prefix}-${boardSlug}`, build(), `${prefix} for r/${boardSlug}`);
-      } catch (err) {
-        console.error(`[Publish] Failed ${prefix} feed for r/${boardSlug}: ${err.message}`);
-        failedBoards.add(boardSlug);
-      }
     }
   }
 
   setRepublishBoards(failedBoards);
-
-  // Ranked feeds were just rebuilt — reset the timed refresh clock
-  if (failedBoards.size === 0) {
-    setMeta('last_ranked_refresh_at', String(Date.now()));
-  }
 }
 
 /**
@@ -289,20 +273,11 @@ export async function publishGlobalAndProfile() {
     let globalFailed = false;
     const allPosts = collectAllPosts();
 
-    // Chronological (new) global feed
-    try {
-      await publishAndUpdateFeed('global', buildGlobalIndexFromState(allPosts), 'globalIndex');
-    } catch (err) {
-      console.error(`[Publish] Failed for globalIndex: ${err.message}`);
-      globalFailed = true;
-    }
-
-    // All ranked global feeds (reuse collected posts)
+    // Event-driven path publishes only the defaults — chronological + hot.
+    // The other ranked global variants are deferred to publishRankedRefresh.
     for (const [name, build] of [
-      ['best-global', () => buildBestGlobalIndex(allPosts)],
+      ['global', () => buildGlobalIndexFromState(allPosts)],
       ['hot-global', () => buildHotGlobalIndex(allPosts)],
-      ['rising-global', () => buildRisingGlobalIndex(allPosts)],
-      ['controversial-global', () => buildControversialGlobalIndex(allPosts)],
     ]) {
       try {
         await publishAndUpdateFeed(name, build(), name);
@@ -313,11 +288,6 @@ export async function publishGlobalAndProfile() {
     }
 
     setRepublishGlobal(globalFailed);
-
-    // Global ranked feeds were just rebuilt — reset the timed refresh clock
-    if (!globalFailed) {
-      setMeta('last_ranked_refresh_at', String(Date.now()));
-    }
   }
 
   // Curator profile — publish to feed if content changed, then ensure declaration.
@@ -432,14 +402,14 @@ export async function pollOnce() {
   // Global + profile — always checked independently of board changes
   await publishGlobalAndProfile();
 
-  // Timed ranked refresh — hot/rising change with time even without new events
-  const rankedWorkHappened = changedBoards.size > 0;
-  if (!rankedWorkHappened) {
-    const lastRefresh = parseInt(getMeta('last_ranked_refresh_at', '0'), 10);
-    if (Date.now() - lastRefresh >= config.rankedRefreshInterval) {
-      console.log('[Curator] Ranked refresh interval elapsed, republishing ranked feeds');
-      await publishRankedRefresh();
-    }
+  // Timed ranked refresh — hot/rising drift with time, and post-WP3 it is the
+  // *only* path that publishes best/rising/controversial. Always check the
+  // timer (even when this poll had event-driven work); publishAndUpdateFeed's
+  // no-change skip makes the refresh cheap when nothing actually shifted.
+  const lastRefresh = parseInt(getMeta('last_ranked_refresh_at', '0'), 10);
+  if (Date.now() - lastRefresh >= config.rankedRefreshInterval) {
+    console.log('[Curator] Ranked refresh interval elapsed, republishing ranked feeds');
+    await publishRankedRefresh();
   }
 
   clearCache();
