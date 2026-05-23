@@ -6,7 +6,7 @@
 export { initDb, closeDb, resetDb, inTransaction } from '../db/sqlite.js';
 
 export {
-  getMeta, setMeta,
+  getMeta, setMeta, clearMetaWithPrefix,
   getLastProcessedBlock, setLastProcessedBlock,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,

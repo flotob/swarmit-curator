@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { initDb, closeDb, resetDb } from '../../src/db/sqlite.js';
 
 // Repos
-import { getMeta, setMeta, getLastProcessedBlock, setLastProcessedBlock, getRepublishGlobal, setRepublishGlobal, getRepublishProfile, setRepublishProfile } from '../../src/db/repos/meta.js';
+import { getMeta, setMeta, clearMetaWithPrefix, getLastProcessedBlock, setLastProcessedBlock, getRepublishGlobal, setRepublishGlobal, getRepublishProfile, setRepublishProfile } from '../../src/db/repos/meta.js';
 import { addBoard, getBoard, getAllBoards, hasBoard, updateBoardRef } from '../../src/db/repos/boards.js';
 import {
   addSubmission, hasSubmission, getSubmissionsForBoard, getRootSubmissions, getRepliesForRoot,
@@ -56,6 +56,40 @@ describe('meta repo', () => {
   it('republishProfile round-trip', () => {
     setRepublishProfile(true);
     assert.equal(getRepublishProfile(), true);
+  });
+
+  it('clearMetaWithPrefix removes matching keys and leaves others', () => {
+    setMeta('last_published_hash:thread-a', 'h1');
+    setMeta('last_published_hash:thread-b', 'h2');
+    setMeta('last_published_ref:thread-a', 'r1');
+    setMeta('unrelated', 'keep');
+
+    const removed = clearMetaWithPrefix('last_published_hash:');
+
+    assert.equal(removed, 2);
+    assert.equal(getMeta('last_published_hash:thread-a'), null);
+    assert.equal(getMeta('last_published_hash:thread-b'), null);
+    assert.equal(getMeta('last_published_ref:thread-a'), 'r1');
+    assert.equal(getMeta('unrelated'), 'keep');
+  });
+
+  it('clearMetaWithPrefix treats SQL LIKE wildcards in the prefix literally', () => {
+    // Underscore is a LIKE wildcard; without escaping, `pfx_` would also delete
+    // `pfxA`. The helper escapes them so callers can use any literal prefix.
+    setMeta('pfx_one', '1');
+    setMeta('pfxAtwo', '2');
+
+    const removed = clearMetaWithPrefix('pfx_');
+
+    assert.equal(removed, 1);
+    assert.equal(getMeta('pfx_one'), null);
+    assert.equal(getMeta('pfxAtwo'), '2');
+  });
+
+  it('clearMetaWithPrefix on a no-match prefix returns 0', () => {
+    setMeta('keep', 'k');
+    assert.equal(clearMetaWithPrefix('nothing_matches:'), 0);
+    assert.equal(getMeta('keep'), 'k');
   });
 });
 

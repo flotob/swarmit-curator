@@ -12,6 +12,7 @@ import {
 } from './indexer/state.js';
 import { pollOnce, hasPendingWork } from './indexer/orchestrator.js';
 import { startEventSubscription, stopEventSubscription, sleepInterruptible } from './chain/subscribe.js';
+import { runStampRotationCheck } from './publisher/stamp-rotation.js';
 
 let running = true;
 
@@ -20,6 +21,7 @@ async function runLoop() {
   console.log(`[Curator] Bee: ${config.beeUrl}, Contract: ${config.contractAddress}`);
 
   initDb(config.stateDb);
+  runStampRotationCheck(config.postageBatchId);
   startEventSubscription();
 
   // Seed initial block cursor if DB is fresh

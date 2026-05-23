@@ -7,6 +7,11 @@ import { createFeedManifest, updateFeed as updateSwarmFeed, publishJSON } from '
 import { hexToBzz, validate } from 'swarmit-protocol';
 import { getFeed, setFeed, getMeta, setMeta, inTransaction } from '../indexer/state.js';
 
+// Exported so stamp-rotation can purge them on POSTAGE_BATCH_ID change without
+// the two modules silently drifting if a prefix is ever renamed here.
+export const PUBLISH_HASH_PREFIX = 'last_published_hash:';
+export const PUBLISH_REF_PREFIX = 'last_published_ref:';
+
 /**
  * SHA-256 of the index object's JSON, excluding the volatile `updatedAt` field.
  * Same content (regardless of when it was rebuilt) hashes the same — that's what
@@ -55,8 +60,8 @@ export async function publishAndUpdateFeed(feedName, indexObj, label) {
   // identical (modulo `updatedAt`) to the last one we published. Both the data
   // chunk and the feed-update SOC would be wasted writes — and on a finite-
   // capacity postage batch they're an actively bad idea.
-  const hashKey = `last_published_hash:${feedName}`;
-  const refKey = `last_published_ref:${feedName}`;
+  const hashKey = `${PUBLISH_HASH_PREFIX}${feedName}`;
+  const refKey = `${PUBLISH_REF_PREFIX}${feedName}`;
   const hash = contentHash(indexObj);
   if (hash === getMeta(hashKey)) {
     return getMeta(refKey);
