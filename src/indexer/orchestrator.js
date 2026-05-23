@@ -24,7 +24,6 @@ import { collectAllPosts, buildGlobalIndexFromState, buildBestGlobalIndex, build
 import config from '../config.js';
 import { publishAndUpdateFeed } from '../publisher/feed-manager.js';
 import { needsProfileUpdate, publishProfileToFeed, ensureDeclared } from '../publisher/profile-manager.js';
-import { runDeathSweep, runResurrectionSweep } from './liveness.js';
 
 export const MAX_BLOCKS_PER_POLL = 10_000;
 
@@ -330,39 +329,6 @@ export async function publishGlobalAndProfile() {
   }
 }
 
-/**
- * Run whichever liveness sweeps are due and fold their results into the poll.
- *
- * Timer-driven like the ranked refresh, and gated by config — not by
- * hasPendingWork() — so it never keeps the loop from going idle. Boards whose
- * live set changed are added to `changedBoards` and marked for republish so
- * the poll's publish phase rebuilds their feeds.
- *
- * @param {Set<string>} changedBoards - the poll's changed-board set, mutated in place
- * @param {number} [now] - current time in ms
- */
-export async function runLivenessSweeps(changedBoards, now = Date.now()) {
-  if (!config.livenessEnabled) return;
-
-  const sweptBoards = new Set();
-
-  if (now - parseInt(getMeta('last_death_sweep_at', '0'), 10) >= config.livenessCheckInterval) {
-    const { changedBoards: pruned } = await runDeathSweep(now);
-    for (const slug of pruned) sweptBoards.add(slug);
-    setMeta('last_death_sweep_at', String(now));
-  }
-
-  if (config.livenessRecheckDead
-      && now - parseInt(getMeta('last_resurrection_sweep_at', '0'), 10) >= config.livenessRecheckInterval) {
-    const { changedBoards: restored } = await runResurrectionSweep(now);
-    for (const slug of restored) sweptBoards.add(slug);
-    setMeta('last_resurrection_sweep_at', String(now));
-  }
-
-  if (sweptBoards.size === 0) return;
-  for (const slug of sweptBoards) changedBoards.add(slug);
-  markBoardsDirty(sweptBoards);
-}
 
 export async function pollOnce() {
   const safeBlock = await getSafeBlockNumber();
@@ -403,11 +369,9 @@ export async function pollOnce() {
     if (changedBoards.size > 0) markBoardsDirty(changedBoards);
   }
 
-  // Liveness sweeps — timer-driven; fold any boards they changed into this
-  // poll so the publish phase below rebuilds the affected feeds.
-  await runLivenessSweeps(changedBoards);
-
-  // Publish board/thread indexes (republishBoards includes anything from above)
+  // Publish board/thread indexes — liveness sweeps run on their own schedule
+  // (see startLivenessScheduler) and post pruned boards into republish_boards,
+  // which is unioned in below.
   if (changedBoards.size > 0 || getRepublishBoards().size > 0) {
     await publishIndexes(changedBoards, changedThreads);
   }

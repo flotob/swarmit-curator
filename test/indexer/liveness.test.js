@@ -1,5 +1,6 @@
 import { describe, it, before, after, beforeEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { trackConcurrency } from '../helpers/fixtures.js';
 
 // --- Mocks (must be registered before importing the module under test) ---
 
@@ -12,6 +13,7 @@ mock.module('../../src/config.js', {
     livenessStrikeThreshold: 2,
     livenessIngestGrace: 1000,
     livenessRecheckGiveUpAfter: 5000,
+    livenessProbeConcurrency: 8,
   },
 });
 
@@ -101,6 +103,18 @@ describe('runDeathSweep', () => {
     markStale('bzz://a', NOW);
     await runDeathSweep(NOW);
     assert.equal(mockIsRetrievable.mock.callCount(), 0);
+  });
+
+  it('probes run with bounded parallelism (workers > 1, ≤ cap)', async () => {
+    // 16 items, in-flight cap is 8 inside runDeathSweep — tracker.max should
+    // sit at 8 (proves bounded parallelism, neither serial nor unbounded).
+    for (let i = 0; i < 16; i++) addSub(`bzz://p${i}`);
+    const tracker = trackConcurrency(mockIsRetrievable, { delayMs: 10, returnValue: true });
+
+    await runDeathSweep(NOW);
+
+    assert.ok(tracker.max >= 2, `expected parallel probes; observed max in-flight = ${tracker.max}`);
+    assert.ok(tracker.max <= 8, `concurrency cap breached; observed max in-flight = ${tracker.max}`);
   });
 
   it('reports only the boards with newly pruned submissions', async () => {

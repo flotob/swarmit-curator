@@ -60,7 +60,6 @@ const {
   setRepublishGlobal, getRepublishGlobal,
   setRepublishProfile,
   getMeta, setMeta,
-  setStrikes, getSubmissionsForBoard,
 } = await import('../../src/indexer/state.js');
 
 import { before, after } from 'node:test';
@@ -323,51 +322,10 @@ describe('pollOnce', () => {
     assert.ok(lastRefresh > 0, 'publishRankedRefresh should fire when timer is due even with event-driven changes');
   });
 
-  it('runs the death sweep on a non-idle poll', async () => {
-    setLastProcessedBlock(49);
-    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-
-    await pollOnce();
-
-    assert.ok(getMeta('last_death_sweep_at'), 'death sweep should have run and recorded its time');
-  });
-
-  it('does not run the resurrection sweep when LIVENESS_RECHECK_DEAD is off', async () => {
-    setLastProcessedBlock(49);
-    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-
-    await pollOnce();
-
-    assert.equal(getMeta('last_resurrection_sweep_at'), null);
-  });
-
-  it('a sweep-pruned board flows through to a feed republish', async () => {
-    setLastProcessedBlock(49);
-    mockGetSafeBlockNumber.mock.mockImplementation(async () => 100);
-    mockIsRetrievable.mock.mockImplementation(async () => false);
-
-    // A post past the ingest grace, pre-loaded with one strike — the next
-    // probe (failing) crosses the default threshold of 2 → death sweep prunes.
-    addBoard('tech', { boardId: slugToBoardId('tech') });
-    const ref = bzz('aa');
-    addSubmission(ref, {
-      boardId: 'tech', kind: 'post',
-      contentRef: bzz('bb'),
-      blockNumber: 10, logIndex: 0,
-      ingestedAt: Date.now() - 10 * 60 * 60 * 1000, // 10h ago — past 1h grace
-    });
-    setStrikes(ref, 1);
-
-    await pollOnce();
-
-    const [entry] = getSubmissionsForBoard('tech');
-    assert.equal(entry.unreachableStrikes, 2);
-    assert.ok(entry.staleSince > 0, 'post should be marked stale');
-    assert.ok(
-      mockPublishAndUpdateFeed.mock.calls.some((c) => c.arguments[0] === 'board-tech'),
-      'board-tech feed should have been republished',
-    );
-  });
+  // Liveness sweeps are no longer triggered by pollOnce — they run on their
+  // own scheduler (see test/indexer/liveness-orchestration.test.js). pollOnce
+  // only drains the resulting `republish_boards` queue, which is covered by
+  // the "republish queue boards are included" cases in publish-indexes.test.js.
 
   it('MAX_BLOCKS_PER_POLL caps toBlock', async () => {
     setLastProcessedBlock(-1);

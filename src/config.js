@@ -55,6 +55,7 @@ const config = {
   livenessRecheckInterval: parseInt(process.env.LIVENESS_RECHECK_INTERVAL || '21600', 10) * 1000,
   livenessRecheckGiveUpAfter: parseInt(process.env.LIVENESS_RECHECK_GIVEUP_AFTER || '2592000', 10) * 1000,
   livenessBatchSize: parseInt(process.env.LIVENESS_BATCH_SIZE || '0', 10),
+  livenessProbeConcurrency: parseInt(process.env.LIVENESS_PROBE_CONCURRENCY || '8', 10),
 };
 
 // Derive curator address from private key
