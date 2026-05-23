@@ -31,4 +31,6 @@ export { getPublishedKeys, setPublishedKeys, hasPublishedKey } from '../db/repos
 
 export { getRetrySubmissions, setRetrySubmissions } from '../db/repos/retries.js';
 
-export { getRepublishBoards, setRepublishBoards, addRepublishBoard } from '../db/repos/republish-boards.js';
+export {
+  getRepublishBoards, setRepublishBoards, addRepublishBoard, markBoardsDirty,
+} from '../db/repos/republish-boards.js';

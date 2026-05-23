@@ -14,7 +14,7 @@ import {
   hasSubmission, addSubmission,
   getRetrySubmissions, setRetrySubmissions,
   applyVoteEvent, insertVoteEvent,
-  getRepublishBoards, setRepublishBoards, addRepublishBoard,
+  getRepublishBoards, setRepublishBoards, addRepublishBoard, markBoardsDirty,
   getRepublishGlobal, setRepublishGlobal,
   getRepublishProfile, setRepublishProfile,
 } from './state.js';
@@ -33,18 +33,6 @@ export function hasPendingWork() {
     || getRepublishBoards().size > 0
     || getRepublishGlobal()
     || getRepublishProfile(); // profile content check deferred to publish time (too expensive for idle)
-}
-
-/**
- * Persist the "republish these boards + global" dirty markers atomically, so a
- * crash before the publish phase still leaves the work to be picked up on the
- * next start.
- */
-function markBoardsDirty(slugs) {
-  inTransaction(() => {
-    for (const slug of slugs) addRepublishBoard(slug);
-    setRepublishGlobal(true);
-  });
 }
 
 /**
